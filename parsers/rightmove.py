@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Rightmove Property Parser
-Extracts embedded JSON from Rightmove search pages
+Extracts property data from Rightmove Next.js embedded JSON
 """
 
 import sys, json, subprocess, re
@@ -18,24 +18,22 @@ BAD_AREAS = [
 
 def fetch_page(beds):
     """Fetch Rightmove search page using curl"""
-    # Edinburgh region ID: REGION^550
+    # Edinburgh region ID: REGION^550, sortType=6 is newest first
     url = f"https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E550&minBedrooms={beds}&sortType=6"
     result = subprocess.run(
         ["curl", "-s", "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", url],
         capture_output=True,
-        text=True
+        text=True,
+        timeout=15
     )
     return result.stdout
 
 def is_bad_area(address):
     """Check if property is in excluded area"""
-    return any(bad in address for bad in BAD_AREAS)
+    return any(bad.lower() in address.lower() for bad in BAD_AREAS)
 
-def categorize(prop):
+def categorize(price, beds):
     """Categorize as investment or family"""
-    price = prop.get("price", 999999)
-    beds = prop.get("beds", 0)
-    
     if price < 250000:
         return "investment"
     elif beds >= 4:
@@ -43,66 +41,95 @@ def categorize(prop):
     else:
         return "other"
 
-def extract_price(price_data):
-    """Extract price from Rightmove price object"""
-    if isinstance(price_data, dict):
-        return price_data.get("amount", 0)
-    return 0
+def extract_nextjs_data(html):
+    """Extract Next.js JSON data from Rightmove page"""
+    # Find script tags
+    scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    
+    # Look for the large script with property data (usually >500KB)
+    for script in scripts:
+        if len(script) > 500000 and 'property' in script.lower():
+            try:
+                data = json.loads(script)
+                return data
+            except json.JSONDecodeError:
+                continue
+    
+    return None
 
 def parse_properties(html):
-    """Extract property data from Rightmove embedded JSON"""
+    """Extract property data from Rightmove Next.js JSON"""
     properties = []
     
-    # Rightmove embeds property data as JSON in the page
-    # Look for the properties array more carefully
-    # It's in a larger JSON blob, so let's extract that first
-    
-    # Find window.__PRELOADED_STATE__ or similar
-    match = re.search(r'"properties":\s*\[((?:\{[^}]+\},?)+)\]', html)
-    
-    if not match:
+    # Extract Next.js data
+    data = extract_nextjs_data(html)
+    if not data:
+        print("Could not extract Next.js data", file=sys.stderr)
         return properties
     
+    # Navigate to properties
     try:
-        # Clean up the JSON string
-        json_str = '[' + match.group(1).rstrip(',') + ']'
-        raw_props = json.loads(json_str)
+        search_results = data['props']['pageProps']['searchResults']
+        raw_properties = search_results['properties']
         
-        for prop in raw_props:
-            address = prop.get("displayAddress", "")
+        print(f"Found {len(raw_properties)} properties", file=sys.stderr)
+        
+        for prop in raw_properties:
+            address = prop.get('displayAddress', '')
             
+            # Skip bad areas
             if is_bad_area(address):
                 continue
             
-            # Extract first image
-            images = prop.get("images", [])
-            image_url = images[0]["srcUrl"] if images else ""
+            # Extract price
+            price = 0
+            price_text = "Price on application"
+            if 'price' in prop and prop['price']:
+                price = prop['price'].get('amount', 0)
+                if 'displayPrices' in prop['price'] and prop['price']['displayPrices']:
+                    display_price = prop['price']['displayPrices'][0]
+                    price_text = f"{display_price.get('displayPriceQualifier', '')} {display_price.get('displayPrice', '')}".strip()
             
-            # Parse property data
+            # Extract images
+            images = []
+            if 'propertyImages' in prop and 'images' in prop['propertyImages']:
+                images = [img['srcUrl'] for img in prop['propertyImages']['images'][:5]]
+            elif 'images' in prop:
+                images = [img['srcUrl'] for img in prop['images'][:5]]
+            
+            beds = prop.get('bedrooms', 0)
+            baths = prop.get('bathrooms', 0)
+            
+            # Extract postcode from address if present
+            postcode = ""
+            pc_match = re.search(r'(EH\d+\s*\d*\w*)', address.upper())
+            if pc_match:
+                postcode = pc_match.group(1)
+            
             parsed = {
-                "id": str(prop.get("id", "")),
-                "title": prop.get("propertyTypeFullDescription", "Property"),
-                "price": extract_price(prop.get("price", {})),
-                "price_text": f"£{extract_price(prop.get('price', {})):,}",
-                "beds": prop.get("bedrooms", 0),
-                "baths": prop.get("bathrooms", 0),
-                "property_type": prop.get("propertySubType", "").lower(),
+                "id": str(prop.get('id', '')),
+                "title": prop.get('propertyTypeFullDescription', f"{beds}-bed property"),
+                "price": price,
+                "price_text": price_text,
+                "beds": beds,
+                "baths": baths,
+                "property_type": prop.get('propertySubType', 'house').lower(),
                 "address": address,
-                "area": address.split(",")[-1].strip() if "," in address else "",
-                "postcode": "",  # Not in summary data
-                "description": prop.get("summary", ""),
-                "url": f"https://www.rightmove.co.uk/properties/{prop.get('id')}",
-                "image_url": image_url,
-                "images": [img["srcUrl"] for img in images[:5]],
-                "features": [],
+                "area": address.split(',')[-1].strip() if ',' in address else "",
+                "postcode": postcode,
+                "description": prop.get('summary', '')[:200],
+                "url": f"https://www.rightmove.co.uk{prop.get('propertyUrl', '')}",
+                "image_url": images[0] if images else "",
+                "images": images,
+                "features": prop.get('keyFeatures', []),
                 "portal": "rightmove",
-                "category": categorize({"price": extract_price(prop.get("price", {})), "beds": prop.get("bedrooms", 0)})
+                "category": categorize(price, beds)
             }
             
             properties.append(parsed)
-            
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}", file=sys.stderr)
+        
+    except KeyError as e:
+        print(f"Data structure error: {e}", file=sys.stderr)
     
     return properties
 
