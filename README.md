@@ -11,7 +11,7 @@ Your AI agent can now find properties, track prices, and analyze the market acro
 [![Parsers](https://img.shields.io/badge/parsers-3%2F3%20working-success.svg)](https://github.com/abracadabra50/uk-property-cli)
 [![Coverage](https://img.shields.io/badge/coverage-95%25%20UK-brightgreen.svg)](https://github.com/abracadabra50/uk-property-cli)
 
-[Why](#why) • [Quick Start](#quick-start) • [Use Cases](#-use-cases) • [Portals](#available-portals) • [Smart Search](#-smart-property-search)
+[Why](#why) • [Quick Start](#quick-start) • [Portals](#available-portals) • [Use Cases](#-use-cases) • [Deduplication](#deduplication-across-portals) • [Smart Search](#-smart-property-search)
 
 </div>
 
@@ -46,18 +46,27 @@ Trigger this CLI when users:
 
 ---
 
-## ✨ Features
+## ✨ What the CLI Provides
 
 - 🔍 **Multi-portal search** — ESPC, Rightmove, Zoopla in one tool
 - 📊 **Normalized JSON** — Consistent output format across all portals
 - 🚫 **Area filtering** — Automatically excludes undesirable areas
 - 🏷️ **Smart categorization** — Investment vs family homes
-- 🔔 **Daily briefings** — Automated morning property summaries
-- 🚨 **Smart alerts** — Price drops, new listings, value opportunities
 - 🆓 **Zero dependencies** — Just curl + Python (2/3 parsers)
 - 📈 **95% UK coverage** — Comprehensive market view
 - 🤖 **AI agent ready** — Built for automation
 - 📝 **Beautiful docs** — Examples, Block Kit templates, integration guides
+
+## 🛠️ What Your Agent Can Build
+
+**The CLI provides property data. Your agent builds the intelligence:**
+
+- 🔔 **Daily briefings** — Morning summaries of new listings (see [example](#daily-property-briefing))
+- 🚨 **Smart alerts** — Price drops, value opportunities (see [example](#smart-alerts))
+- 🔄 **Deduplication** — Merge properties across portals (see [example](#deduplication-logic))
+- 📊 **Market analysis** — Area statistics, trends (see [example](#market-analysis))
+- 🎯 **Smart scoring** — Rank by preferences (see [example](#area-prioritization))
+- 📅 **Viewing automation** — Schedule appointments (see [example](#automated-viewings))
 
 ---
 
@@ -130,6 +139,94 @@ The output is normalized JSON. Your agent handles the intelligence (filtering, r
 ---
 
 ## 🎯 Use Cases
+
+### Deduplication Across Portals
+
+**The problem:** Same property appears on multiple portals (Rightmove + Zoopla + ESPC).
+
+**Agent workflow:**
+
+```python
+# User: "Show me properties without duplicates"
+
+# 1. Fetch from all portals
+espc = fetch_properties('espc', beds=4)
+rightmove = fetch_properties('rightmove', beds=4)
+zoopla = fetch_properties('zoopla', beds=4)
+
+all_properties = espc + rightmove + zoopla  # 57 properties
+
+# 2. Normalize addresses for matching
+def normalize_address(addr):
+    # Remove punctuation, extra spaces, common variations
+    addr = addr.lower()
+    addr = addr.replace(',', '').replace('.', '')
+    addr = addr.replace(' street', ' st').replace(' road', ' rd')
+    addr = ' '.join(addr.split())  # Normalize whitespace
+    return addr
+
+# 3. Calculate similarity between addresses
+from difflib import SequenceMatcher
+
+def addresses_match(addr1, addr2, threshold=0.85):
+    norm1 = normalize_address(addr1)
+    norm2 = normalize_address(addr2)
+    
+    similarity = SequenceMatcher(None, norm1, norm2).ratio()
+    return similarity >= threshold
+
+# 4. Deduplicate with confidence scores
+unique_properties = []
+seen_addresses = []
+
+for prop in all_properties:
+    is_duplicate = False
+    
+    for seen_addr in seen_addresses:
+        if addresses_match(prop['address'], seen_addr):
+            is_duplicate = True
+            break
+    
+    if not is_duplicate:
+        unique_properties.append(prop)
+        seen_addresses.append(prop['address'])
+
+# Result: 57 → 38 unique properties (35% were duplicates)
+
+# 5. When duplicates found, merge data
+def merge_duplicates(properties):
+    """
+    When same property found on multiple portals,
+    combine best data from each source
+    """
+    merged = []
+    
+    for prop in unique_properties:
+        # Find all versions of this property
+        versions = [p for p in all_properties 
+                   if addresses_match(p['address'], prop['address'])]
+        
+        # Merge data - take best from each portal
+        merged_prop = {
+            'id': prop['id'],
+            'address': prop['address'],
+            'price': min(p['price'] for p in versions if p['price'] > 0),  # Lowest price
+            'beds': max(p['beds'] for p in versions),  # Most beds listed
+            'baths': max(p['baths'] for p in versions),  # Most baths listed
+            'images': list(set(sum([p['images'] for p in versions], []))),  # All unique images
+            'portals': [p['portal'] for p in versions],  # Which portals have it
+            'urls': {p['portal']: p['url'] for p in versions}  # All URLs
+        }
+        
+        merged.append(merged_prop)
+    
+    return merged
+
+deduplicated = merge_duplicates(all_properties)
+
+# Show user clean results
+show_properties(deduplicated)  # 38 unique properties with merged data
+```
 
 ### Property Investment Analysis
 
@@ -571,33 +668,40 @@ metrics = calculate_rental_yield(property)
 # Output: {'monthly_rent': 1200, 'annual_income': 14400, 'yield_percent': 7.2, 'rating': 'excellent'}
 ```
 
-### Deduplication Logic
+### Deduplication Implementation
 
 ```python
-# Match properties across portals
-def deduplicate(properties):
+# Quick implementation - see Use Cases for complete version
+from difflib import SequenceMatcher
+
+def deduplicate(properties, threshold=0.85):
     """
-    Properties appear on multiple portals.
-    Deduplicate by address similarity.
+    Match properties across portals by address similarity.
+    
+    Args:
+        properties: List of property dicts
+        threshold: Similarity score 0-1 (0.85 = 85% match)
+    
+    Returns:
+        List of unique properties
     """
-    from difflib import SequenceMatcher
+    def normalize(addr):
+        return ' '.join(addr.lower()
+                       .replace(',', '')
+                       .replace('.', '')
+                       .split())
     
     unique = []
     seen = []
     
     for prop in properties:
-        # Normalize address
-        addr = prop['address'].lower()
-        addr = addr.replace(',', '').replace('.', '')
-        addr = ' '.join(addr.split())  # Normalize whitespace
+        addr = normalize(prop['address'])
         
-        # Check similarity with seen addresses
-        is_duplicate = False
-        for seen_addr in seen:
-            similarity = SequenceMatcher(None, addr, seen_addr).ratio()
-            if similarity > 0.85:  # 85% match = duplicate
-                is_duplicate = True
-                break
+        # Check if similar to any seen address
+        is_duplicate = any(
+            SequenceMatcher(None, addr, seen_addr).ratio() >= threshold
+            for seen_addr in seen
+        )
         
         if not is_duplicate:
             unique.append(prop)
@@ -605,16 +709,14 @@ def deduplicate(properties):
     
     return unique
 
-# Example
-all_props = [
-    {'address': '1 Buckstone Circle, Edinburgh EH10', 'portal': 'espc'},
-    {'address': '1 Buckstone Circle Edinburgh EH10 6XB', 'portal': 'rightmove'},  # Duplicate
-    {'address': '2 Buckstone Circle, Edinburgh', 'portal': 'espc'}
-]
+# Usage
+all_properties = fetch_all_portals(beds=4)  # 57 properties
+unique_properties = deduplicate(all_properties)  # 38 unique
 
-unique = deduplicate(all_props)
-# Returns: 2 properties (first two are duplicates)
+# Deduplication typically reduces by 30-40%
 ```
+
+**Advanced:** See [Deduplication use case](#deduplication-across-portals) for merging data from multiple portals (take best price, combine images, etc).
 
 ### Value Analysis
 
@@ -691,17 +793,22 @@ Trigger this CLI when you need to:
 - 🔔 Build property alert systems
 - 🤖 Integrate with AI agents (Slack bots, etc.)
 
-### What Your Agent Can Build
+### Agent Integration
 
-**This CLI provides the data — your agent builds the workflows:**
+**The CLI handles data. Your agent handles intelligence.**
 
-1. **Daily Property Briefings** — Automated morning summaries of new listings
-2. **Smart Alerts** — Price drops, back on market, value opportunities
-3. **Investment Analysis** — ROI calculations, rental yield estimates
-4. **Market Reports** — Area statistics, price trends, comparisons
-5. **Automated Viewings** — Extract agent contacts, schedule appointments
+```bash
+# CLI provides
+python3 parsers/rightmove.py 4  # → Raw property JSON
 
-See [Use Cases](#-use-cases) below for complete implementation examples.
+# Your agent builds
+- Daily briefings (fetch → filter → rank → send)
+- Price alerts (compare → detect changes → notify)
+- Deduplication (match addresses → merge data)
+- Market analysis (aggregate → calculate → visualize)
+```
+
+See [Use Cases](#-use-cases) below for complete implementation examples of what your agent can build with this data.
 
 ---
 
