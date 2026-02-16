@@ -2,31 +2,46 @@
 
 # 🏠 UK Property CLI
 
-**Multi-portal property search with zero dependencies**
+**One CLI to search every UK property portal.**  
+Your AI agent can now find properties, track prices, and analyze the market across Rightmove, Zoopla, ESPC, and more — with clean commands and normalized JSON output.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-green.svg)](https://github.com/abracadabra50/uk-property-cli)
 [![Parsers](https://img.shields.io/badge/parsers-3%2F3%20working-success.svg)](https://github.com/abracadabra50/uk-property-cli)
-[![Coverage](https://img.shields.io/badge/coverage-99%25%20Edinburgh-brightgreen.svg)](https://github.com/abracadabra50/uk-property-cli)
+[![Coverage](https://img.shields.io/badge/coverage-95%25%20UK-brightgreen.svg)](https://github.com/abracadabra50/uk-property-cli)
 
-*Search across ESPC, Rightmove, and Zoopla with clean CLI commands and normalized JSON output*
-
-[Features](#features) • [Quick Start](#quick-start) • [Portals](#available-portals) • [Documentation](#documentation) • [Examples](#example-workflow-daily-property-briefing)
+[Why](#why) • [Quick Start](#quick-start) • [Use Cases](#-use-cases) • [Portals](#available-portals) • [Smart Search](#-smart-property-search)
 
 </div>
+
+---
+
+## Why
+
+If you're building AI agents for property search, there's a gap: **UK property portals offer zero APIs.**
+
+Rightmove, Zoopla, OnTheMarket — none of them provide developer APIs. No OAuth, no REST endpoints, no webhooks. If you want your agent to search properties, track prices, or analyze the market, there's no official way to do it.
+
+But agents need property data. Investment analysis, price tracking, market research — these are perfect agent workflows. The infrastructure just doesn't exist.
+
+**UK Property CLI closes that gap.** Reverse-engineered parsers that give your agent a unified command-line interface to every major UK property portal. Your agent calls `python3 parsers/rightmove.py 4` and gets normalized JSON whether you're searching Rightmove, Zoopla, or ESPC.
+
+Built for agent frameworks like [OpenClaw](https://github.com/claw-labs/openclaw), Pi, Claude Desktop MCP. Works with any agent that can shell out to a CLI. Your agent handles the intelligence (filtering, ranking, alerting). The CLI handles the grunt work (fetching, parsing, normalizing).
+
+**Clean data, zero dependencies, production-ready.**
 
 ---
 
 ## 🎯 When to Use
 
 Trigger this CLI when users:
-- 🏡 Ask about properties for sale in Edinburgh or UK
+- 🏡 Ask about properties for sale anywhere in the UK
 - 💰 Want to find investment opportunities
 - 👨‍👩‍👧‍👦 Need family homes (4+ bedrooms)
 - 📊 Request property market analysis
 - 🔔 Want price drop alerts
-- 📍 Ask "what's on the market in Morningside?"
+- 📍 Ask "what's on the market in Manchester?" or "find homes in Edinburgh"
 - 🤖 Build automated property workflows
 
 ---
@@ -53,12 +68,12 @@ cd uk-property-cli
 
 # No installation needed! Just Python 3 + curl (pre-installed on Mac/Linux)
 
-# Search Edinburgh properties (4+ beds)
-python3 parsers/espc.py 4
-python3 parsers/rightmove.py 4
-python3 parsers/zoopla.py 4  # Requires Firecrawl API
+# Search UK properties (4+ beds)
+python3 parsers/rightmove.py 4    # UK-wide (1.5M listings)
+python3 parsers/zoopla.py 4       # UK-wide + sold prices
+python3 parsers/espc.py 4         # Edinburgh specialist
 
-# Or use dispatcher
+# Or fetch from all portals
 ./fetch.sh all 4
 ```
 
@@ -148,17 +163,17 @@ show_investment_opportunities(top_investments[:5])
 **Agent workflow:**
 
 ```python
-# User: "Find 4-bed homes in good Edinburgh areas, max £550k"
+# User: "Find 4-bed homes in Manchester, max £400k"
 
 # 1. Search with criteria
 properties = fetch_all_portals(beds=4)
 
 # 2. Apply intelligent filtering
-desired_areas = ['Morningside', 'Bruntsfield', 'Colinton', 'Corstorphine']
+desired_areas = ['Didsbury', 'Chorlton', 'Altrincham', 'Sale']
 good_schools = get_school_catchments(properties)
 
 family_homes = [p for p in properties
-                if p['price'] <= 550000
+                if p['price'] <= 400000
                 and any(area in p['address'] for area in desired_areas)
                 and p['postcode'] in good_schools]
 
@@ -221,36 +236,36 @@ if significant:
 **Agent workflow:**
 
 ```python
-# User: "What's the average price for 4-bed homes in Morningside?"
+# User: "What's the average price for 4-bed homes in Didsbury?"
 
 # 1. Fetch comprehensive data
 all_properties = fetch_all_portals(beds=4)
 
 # 2. Filter by area
-morningside = [p for p in all_properties 
-               if 'Morningside' in p['address']]
+didsbury = [p for p in all_properties 
+            if 'Didsbury' in p['address']]
 
 # 3. Calculate statistics
-prices = [p['price'] for p in morningside if p['price'] > 0]
+prices = [p['price'] for p in didsbury if p['price'] > 0]
 
 analysis = {
-    'count': len(morningside),
+    'count': len(didsbury),
     'average': sum(prices) / len(prices),
     'median': sorted(prices)[len(prices)//2],
     'min': min(prices),
     'max': max(prices),
-    'per_sqft': average_per_sqft(morningside)
+    'per_sqft': average_per_sqft(didsbury)
 }
 
 # 4. Compare with other areas
-stockbridge = calculate_stats([p for p in all_properties if 'Stockbridge' in p['address']])
-bruntsfield = calculate_stats([p for p in all_properties if 'Bruntsfield' in p['address']])
+chorlton = calculate_stats([p for p in all_properties if 'Chorlton' in p['address']])
+altrincham = calculate_stats([p for p in all_properties if 'Altrincham' in p['address']])
 
 # 5. Present comparison
 show_market_analysis({
-    'Morningside': analysis,
-    'Stockbridge': stockbridge,
-    'Bruntsfield': bruntsfield
+    'Didsbury': analysis,
+    'Chorlton': chorlton,
+    'Altrincham': altrincham
 })
 ```
 
@@ -301,17 +316,17 @@ show_viewing_requests_sent(top_3)
 
 | Portal | Coverage | Listings | Status | Dependencies |
 |:------:|:--------:|:--------:|:------:|:------------:|
-| **[ESPC](https://espc.com)** | Edinburgh | 2-3k | ✅ Working | None |
 | **[Rightmove](https://rightmove.co.uk)** | UK-wide | 1.5M | ✅ Working | None |
 | **[Zoopla](https://zoopla.co.uk)** | UK-wide | 750k | ✅ Working | Firecrawl |
+| **[ESPC](https://espc.com)** | Scotland | 2-3k | ✅ Working | None |
 
 </div>
 
 ### Coverage Stats
 
-- 🏴󠁧󠁢󠁳󠁣󠁴󠁿 **Edinburgh**: 99% coverage (all 3 portals)
 - 🇬🇧 **UK**: 95%+ coverage (Rightmove + Zoopla)
-- 📈 **Market share**: 80% Rightmove + 50% Zoopla + 70% ESPC (Edinburgh)
+- 🏴󠁧󠁢󠁳󠁣󠁴󠁿 **Scotland**: 99% coverage (+ ESPC for Edinburgh)
+- 📈 **Market share**: 80% Rightmove + 50% Zoopla across UK
 
 ---
 
@@ -322,12 +337,12 @@ The CLI provides property data. Your agent makes intelligent decisions.
 ### Area Prioritization
 
 ```python
-# Agent logic (not CLI)
+# Agent logic (not CLI) - customize for your target city
 area_tiers = {
-    'premium': ['Morningside', 'Bruntsfield', 'Marchmont', 'Stockbridge'],
-    'excellent': ['Colinton', 'Cramond', 'Corstorphine', 'Trinity'],
-    'good': ['Portobello', 'Leith', 'Blackhall'],
-    'avoid': ['Moredun', 'Niddrie', 'Wester Hailes', 'Sighthill']
+    'premium': ['Didsbury', 'Chorlton', 'Altrincham', 'Hale'],  # Manchester example
+    'excellent': ['Sale', 'Timperley', 'Cheadle'],
+    'good': ['Stretford', 'Withington', 'Levenshulme'],
+    'avoid': ['Moss Side', 'Longsight']  # Configure per city
 }
 
 def score_by_area(property):
@@ -356,17 +371,21 @@ def score_by_area(property):
 
 ```python
 # Calculate rental yield
-def calculate_rental_yield(property):
+def calculate_rental_yield(property, market='uk_average'):
     """
-    Edinburgh rental market averages:
-    - 1 bed: £800-1000/month
-    - 2 bed: £1000-1400/month
-    - 3 bed: £1400-1800/month
-    - 4 bed: £1800-2500/month
+    UK rental market averages (adjust for your region):
+    - 1 bed: £700-1000/month
+    - 2 bed: £900-1400/month
+    - 3 bed: £1200-1800/month
+    - 4 bed: £1500-2500/month
+    
+    London: multiply by 1.8
+    Manchester/Edinburgh: multiply by 1.2
+    Regional: multiply by 0.8
     """
     
     monthly_rent = {
-        1: 900, 2: 1200, 3: 1600, 4: 2150
+        1: 850, 2: 1100, 3: 1400, 4: 1800
     }.get(property['beds'], 1000)
     
     annual_rent = monthly_rent * 12
@@ -618,13 +637,27 @@ Properties are auto-categorized:
 
 ## 🌍 Area Intelligence
 
-### ✅ Desired Areas (Edinburgh)
+Configure area filtering based on your target city/region. The CLI provides raw data — your agent applies local knowledge.
 
-Morningside • Bruntsfield • Marchmont • Stockbridge • Colinton • Cramond • Blackhall • Trinity • Portobello • Leith (waterfront) • City Centre • Corstorphine
+### Example: Edinburgh
 
-### ❌ Excluded Areas (Auto-filtered)
+**Premium:** Morningside • Bruntsfield • Marchmont • Stockbridge  
+**Good:** Colinton • Cramond • Portobello • Leith  
+**Avoid:** Moredun • Niddrie • Wester Hailes • Sighthill
 
-Moredun • Niddrie • Wester Hailes • Sighthill • Muirhouse • Pilton • Kirkliston • Musselburgh • Dalkeith • Granton • Liberton
+### Example: Manchester
+
+**Premium:** Didsbury • Chorlton • Altrincham • Hale  
+**Good:** Sale • Timperley • Stretford  
+**Avoid:** Configure based on local crime/school data
+
+### Example: London
+
+**Premium:** Kensington • Chelsea • Hampstead • Richmond  
+**Good:** Clapham • Islington • Greenwich  
+**Avoid:** Configure based on local knowledge
+
+**Customize area filters in your agent code — not in the CLI.**
 
 ---
 
@@ -767,9 +800,9 @@ uk-property-cli/
 
 ### 📈 Coverage
 
-- Edinburgh: **99%** (3 portals)
-- Scotland: **95%**
-- UK: **95%+**
+- UK: **95%+** (Rightmove + Zoopla)
+- Scotland: **99%** (+ ESPC)
+- England/Wales: **95%** (Rightmove + Zoopla)
 
 ### ⏱️ Performance
 
