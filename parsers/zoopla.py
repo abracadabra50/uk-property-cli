@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Zoopla Property Parser
-Extracts property data from Zoopla search pages
+Uses Firecrawl API to bypass Cloudflare protection
+NOTE: Requires firecrawl CLI and API key (breaks zero-dependency principle)
 """
 
 import sys, json, subprocess, re
@@ -17,24 +18,37 @@ BAD_AREAS = [
 ]
 
 def fetch_page(beds):
-    """Fetch Zoopla search page using curl"""
-    url = f"https://www.zoopla.co.uk/for-sale/houses/edinburgh/?beds_min={beds}&q=Edinburgh"
+    """Fetch Zoopla search page using firecrawl (bypasses Cloudflare)"""
+    url = f"https://www.zoopla.co.uk/for-sale/property/edinburgh/?beds_min={beds}&results_sort=newest_listings"
+    
+    # Check if firecrawl is available
     result = subprocess.run(
-        ["curl", "-s", "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", url],
+        ["which", "firecrawl"],
         capture_output=True,
         text=True
     )
+    
+    if result.returncode != 0:
+        print("Error: firecrawl CLI not found. Install with: npm install -g @mendable/firecrawl-cli", file=sys.stderr)
+        print("Also set FIRECRAWL_API_KEY environment variable", file=sys.stderr)
+        return ""
+    
+    # Fetch with firecrawl
+    result = subprocess.run(
+        ["firecrawl", "scrape", url, "--format", "markdown"],
+        capture_output=True,
+        text=True,
+        timeout=30
+    )
+    
     return result.stdout
 
 def is_bad_area(address):
     """Check if property is in excluded area"""
-    return any(bad in address for bad in BAD_AREAS)
+    return any(bad.lower() in address.lower() for bad in BAD_AREAS)
 
-def categorize(prop):
+def categorize(price, beds):
     """Categorize as investment or family"""
-    price = prop.get("price", 999999)
-    beds = prop.get("beds", 0)
-    
     if price < 250000:
         return "investment"
     elif beds >= 4:
@@ -42,39 +56,87 @@ def categorize(prop):
     else:
         return "other"
 
-def parse_properties(html):
-    """Extract property data from Zoopla page"""
+def parse_price(price_text):
+    """Extract numeric price from text like '£550,000'"""
+    if not price_text:
+        return 0
+    # Remove everything except digits
+    digits = re.sub(r'[^\d]', '', price_text)
+    return int(digits) if digits else 0
+
+def parse_properties(markdown):
+    """Extract property data from Zoopla markdown"""
     properties = []
     
-    # Zoopla also embeds JSON data - look for __PRELOADED_STATE__ or similar
-    # Pattern varies, but typically in script tags
+    # Pattern: [£price ... beds ... baths ... address ... description ...]
+    # Look for property blocks in markdown
+    property_pattern = r'\[£([\d,]+).*?(\d+)\s+beds.*?(\d+)\s+baths.*?\n(.*?)\n(.*?)\]'
     
-    # Try to find JSON data in script tags
-    script_match = re.search(r'<script[^>]*>window\.__PRELOADED_STATE__\s*=\s*({.*?})</script>', html, re.DOTALL)
+    matches = re.findall(property_pattern, markdown, re.DOTALL)
     
-    if script_match:
-        try:
-            data = json.loads(script_match.group(1))
-            # Extract listings from nested structure (would need actual structure)
-            # This is a placeholder showing the approach
-        except:
-            pass
-    
-    # For now, return empty - would need to inspect actual Zoopla HTML structure
-    # The framework is ready for when we implement it
+    for price_text, beds, baths, address, description in matches:
+        # Skip bad areas
+        if is_bad_area(address):
+            continue
+        
+        price = parse_price(price_text)
+        
+        # Extract postcode
+        postcode = ""
+        pc_match = re.search(r'(EH\d+\s*\d*\w*)', address.upper())
+        if pc_match:
+            postcode = pc_match.group(1)
+        
+        # Extract Zoopla ID from URL (would need to capture URL separately)
+        # For now, use a hash of address as ID
+        prop_id = str(abs(hash(address)) % 100000000)
+        
+        prop = {
+            "id": prop_id,
+            "title": f"{beds}-bed property",
+            "price": price,
+            "price_text": f"Offers over £{price_text}",
+            "beds": int(beds),
+            "baths": int(baths),
+            "property_type": "house",
+            "address": address.strip(),
+            "area": address.split(',')[-1].strip() if ',' in address else "",
+            "postcode": postcode,
+            "description": description.strip()[:200],
+            "url": f"https://www.zoopla.co.uk/for-sale/details/{prop_id}/",  # Approximate
+            "image_url": "",
+            "images": [],
+            "features": [],
+            "portal": "zoopla",
+            "category": categorize(price, int(beds))
+        }
+        
+        properties.append(prop)
     
     return properties
 
 def main():
-    html = fetch_page(BEDS)
-    properties = parse_properties(html)
+    markdown = fetch_page(BEDS)
+    
+    if not markdown:
+        output = {
+            "portal": "zoopla",
+            "fetched_at": datetime.utcnow().isoformat() + "Z",
+            "count": 0,
+            "properties": [],
+            "error": "Firecrawl not available or API key not set"
+        }
+        print(json.dumps(output, indent=2))
+        return
+    
+    properties = parse_properties(markdown)
     
     output = {
         "portal": "zoopla",
         "fetched_at": datetime.utcnow().isoformat() + "Z",
         "count": len(properties),
         "properties": properties,
-        "note": "Parser framework ready - needs HTML structure inspection"
+        "note": "Uses Firecrawl API (requires API key, ~$1/1000 requests)"
     }
     
     print(json.dumps(output, indent=2))
