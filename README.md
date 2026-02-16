@@ -18,6 +18,19 @@
 
 ---
 
+## 🎯 When to Use
+
+Trigger this CLI when users:
+- 🏡 Ask about properties for sale in Edinburgh or UK
+- 💰 Want to find investment opportunities
+- 👨‍👩‍👧‍👦 Need family homes (4+ bedrooms)
+- 📊 Request property market analysis
+- 🔔 Want price drop alerts
+- 📍 Ask "what's on the market in Morningside?"
+- 🤖 Build automated property workflows
+
+---
+
 ## ✨ Features
 
 - 🔍 **Multi-portal search** — ESPC, Rightmove, Zoopla in one tool
@@ -64,6 +77,224 @@ python3 parsers/zoopla.py 4
 
 ---
 
+## 💡 How It Works
+
+**The CLI provides unified property data:**
+
+```bash
+python3 parsers/<portal>.py <min_beds>
+```
+
+All parsers return the same JSON structure. Your agent doesn't care which portal you're using.
+
+```bash
+python3 parsers/espc.py 4       # Edinburgh specialist
+python3 parsers/rightmove.py 4  # UK-wide coverage
+python3 parsers/zoopla.py 4     # Sold price data
+```
+
+**Under the hood:**
+
+Each parser implements a common interface:
+
+```python
+def fetch_page(beds: str) -> str:
+    """Fetch search results from portal"""
+    
+def parse_properties(html: str) -> List[Property]:
+    """Extract property data from HTML/JSON"""
+    
+def categorize(price: int, beds: int) -> str:
+    """Tag as investment/family/other"""
+```
+
+The output is normalized JSON. Your agent handles the intelligence (filtering, ranking, alerts). The CLI handles the grunt work (fetching, parsing, normalizing).
+
+---
+
+## 🎯 Use Cases
+
+### Property Investment Analysis
+
+**Agent workflow:**
+
+```python
+# User: "Find investment opportunities in Edinburgh under £250k"
+
+# 1. Search all portals
+espc = fetch_properties('espc', beds=1)
+rightmove = fetch_properties('rightmove', beds=1)
+
+# 2. Filter by criteria
+investments = [p for p in all_properties 
+               if p['price'] < 250000 
+               and p['category'] == 'investment']
+
+# 3. Calculate metrics
+for prop in investments:
+    rental_yield = estimate_rental_income(prop) / prop['price']
+    renovation_cost = estimate_renovation(prop)
+    prop['roi'] = (rental_yield * 12 - renovation_cost) / prop['price']
+
+# 4. Rank by ROI
+top_investments = sorted(investments, key=lambda x: x['roi'], reverse=True)
+
+# 5. Present to user with Block Kit
+show_investment_opportunities(top_investments[:5])
+```
+
+### Family Home Search
+
+**Agent workflow:**
+
+```python
+# User: "Find 4-bed homes in good Edinburgh areas, max £550k"
+
+# 1. Search with criteria
+properties = fetch_all_portals(beds=4)
+
+# 2. Apply intelligent filtering
+desired_areas = ['Morningside', 'Bruntsfield', 'Colinton', 'Corstorphine']
+good_schools = get_school_catchments(properties)
+
+family_homes = [p for p in properties
+                if p['price'] <= 550000
+                and any(area in p['address'] for area in desired_areas)
+                and p['postcode'] in good_schools]
+
+# 3. Deduplicate across portals
+unique_homes = deduplicate_by_address(family_homes)
+
+# 4. Score by preferences
+for prop in unique_homes:
+    score = 0
+    if 'garden' in prop['description'].lower(): score += 10
+    if 'parking' in prop['description'].lower(): score += 5
+    if prop['area'] in ['Morningside', 'Bruntsfield']: score += 15
+    prop['score'] = score
+
+# 5. Show top matches
+show_properties(sorted(unique_homes, key=lambda x: x['score'], reverse=True)[:10])
+```
+
+### Price Drop Alerts
+
+**Agent workflow:**
+
+```python
+# Daily monitoring job at 9am
+
+# 1. Fetch today's properties
+today = fetch_all_portals(beds=4)
+
+# 2. Load yesterday's snapshot
+with open('snapshots/2026-02-15.json') as f:
+    yesterday = json.load(f)
+
+# 3. Detect price changes
+price_drops = []
+for t in today:
+    for y in yesterday:
+        if same_property(t, y):
+            if t['price'] < y['price']:
+                reduction = y['price'] - t['price']
+                percent = (reduction / y['price']) * 100
+                price_drops.append({
+                    'property': t,
+                    'old_price': y['price'],
+                    'new_price': t['price'],
+                    'reduction': reduction,
+                    'percent': percent
+                })
+
+# 4. Alert on significant drops (>5%)
+significant = [p for p in price_drops if p['percent'] > 5]
+
+if significant:
+    send_alert(f"🚨 {len(significant)} price drops detected!")
+    for prop in significant:
+        send_property_card(prop)
+```
+
+### Market Analysis
+
+**Agent workflow:**
+
+```python
+# User: "What's the average price for 4-bed homes in Morningside?"
+
+# 1. Fetch comprehensive data
+all_properties = fetch_all_portals(beds=4)
+
+# 2. Filter by area
+morningside = [p for p in all_properties 
+               if 'Morningside' in p['address']]
+
+# 3. Calculate statistics
+prices = [p['price'] for p in morningside if p['price'] > 0]
+
+analysis = {
+    'count': len(morningside),
+    'average': sum(prices) / len(prices),
+    'median': sorted(prices)[len(prices)//2],
+    'min': min(prices),
+    'max': max(prices),
+    'per_sqft': average_per_sqft(morningside)
+}
+
+# 4. Compare with other areas
+stockbridge = calculate_stats([p for p in all_properties if 'Stockbridge' in p['address']])
+bruntsfield = calculate_stats([p for p in all_properties if 'Bruntsfield' in p['address']])
+
+# 5. Present comparison
+show_market_analysis({
+    'Morningside': analysis,
+    'Stockbridge': stockbridge,
+    'Bruntsfield': bruntsfield
+})
+```
+
+### Automated Viewings
+
+**Agent workflow:**
+
+```python
+# User: "Schedule viewings for my top 3 properties this weekend"
+
+# 1. Get user's saved properties
+saved = load_saved_properties()
+
+# 2. Rank by score
+top_3 = sorted(saved, key=lambda x: x['score'], reverse=True)[:3]
+
+# 3. Extract agent contact info (from property page)
+for prop in top_3:
+    agent_phone = extract_agent_contact(prop['url'])
+    agent_email = extract_agent_email(prop['url'])
+    
+    # 4. Generate viewing request
+    message = f"""
+    Hi, I'm interested in viewing {prop['address']}.
+    
+    Available times:
+    - Saturday 10am-4pm
+    - Sunday 10am-4pm
+    
+    Please let me know available slots.
+    """
+    
+    # 5. Send request (email or call)
+    if agent_email:
+        send_email(agent_email, "Viewing Request", message)
+    else:
+        add_to_call_list(agent_phone, message)
+
+# 6. Confirm with user
+show_viewing_requests_sent(top_3)
+```
+
+---
+
 ## 📊 Available Portals
 
 <div align="center">
@@ -81,6 +312,157 @@ python3 parsers/zoopla.py 4
 - 🏴󠁧󠁢󠁳󠁣󠁴󠁿 **Edinburgh**: 99% coverage (all 3 portals)
 - 🇬🇧 **UK**: 95%+ coverage (Rightmove + Zoopla)
 - 📈 **Market share**: 80% Rightmove + 50% Zoopla + 70% ESPC (Edinburgh)
+
+---
+
+## 🧠 Smart Property Search
+
+The CLI provides property data. Your agent makes intelligent decisions.
+
+### Area Prioritization
+
+```python
+# Agent logic (not CLI)
+area_tiers = {
+    'premium': ['Morningside', 'Bruntsfield', 'Marchmont', 'Stockbridge'],
+    'excellent': ['Colinton', 'Cramond', 'Corstorphine', 'Trinity'],
+    'good': ['Portobello', 'Leith', 'Blackhall'],
+    'avoid': ['Moredun', 'Niddrie', 'Wester Hailes', 'Sighthill']
+}
+
+def score_by_area(property):
+    address = property['address'].lower()
+    
+    for area in area_tiers['premium']:
+        if area.lower() in address:
+            return 100  # Premium location
+    
+    for area in area_tiers['excellent']:
+        if area.lower() in address:
+            return 80
+    
+    for area in area_tiers['good']:
+        if area.lower() in address:
+            return 60
+    
+    for area in area_tiers['avoid']:
+        if area.lower() in address:
+            return 0  # Auto-reject
+    
+    return 40  # Unknown area - proceed with caution
+```
+
+### Investment Metrics
+
+```python
+# Calculate rental yield
+def calculate_rental_yield(property):
+    """
+    Edinburgh rental market averages:
+    - 1 bed: £800-1000/month
+    - 2 bed: £1000-1400/month
+    - 3 bed: £1400-1800/month
+    - 4 bed: £1800-2500/month
+    """
+    
+    monthly_rent = {
+        1: 900, 2: 1200, 3: 1600, 4: 2150
+    }.get(property['beds'], 1000)
+    
+    annual_rent = monthly_rent * 12
+    yield_percent = (annual_rent / property['price']) * 100
+    
+    return {
+        'monthly_rent': monthly_rent,
+        'annual_income': annual_rent,
+        'yield_percent': yield_percent,
+        'rating': 'excellent' if yield_percent > 6 else 'good' if yield_percent > 4 else 'poor'
+    }
+
+# Example usage
+property = {
+    'price': 200000,
+    'beds': 2,
+    'address': '...'
+}
+
+metrics = calculate_rental_yield(property)
+# Output: {'monthly_rent': 1200, 'annual_income': 14400, 'yield_percent': 7.2, 'rating': 'excellent'}
+```
+
+### Deduplication Logic
+
+```python
+# Match properties across portals
+def deduplicate(properties):
+    """
+    Properties appear on multiple portals.
+    Deduplicate by address similarity.
+    """
+    from difflib import SequenceMatcher
+    
+    unique = []
+    seen = []
+    
+    for prop in properties:
+        # Normalize address
+        addr = prop['address'].lower()
+        addr = addr.replace(',', '').replace('.', '')
+        addr = ' '.join(addr.split())  # Normalize whitespace
+        
+        # Check similarity with seen addresses
+        is_duplicate = False
+        for seen_addr in seen:
+            similarity = SequenceMatcher(None, addr, seen_addr).ratio()
+            if similarity > 0.85:  # 85% match = duplicate
+                is_duplicate = True
+                break
+        
+        if not is_duplicate:
+            unique.append(prop)
+            seen.append(addr)
+    
+    return unique
+
+# Example
+all_props = [
+    {'address': '1 Buckstone Circle, Edinburgh EH10', 'portal': 'espc'},
+    {'address': '1 Buckstone Circle Edinburgh EH10 6XB', 'portal': 'rightmove'},  # Duplicate
+    {'address': '2 Buckstone Circle, Edinburgh', 'portal': 'espc'}
+]
+
+unique = deduplicate(all_props)
+# Returns: 2 properties (first two are duplicates)
+```
+
+### Value Analysis
+
+```python
+# Score properties by value for money
+def analyze_value(property, market_data):
+    """
+    Compare property price to area average.
+    Find undervalued properties.
+    """
+    
+    # Get area average price per bedroom
+    area = property['area']
+    beds = property['beds']
+    
+    avg_price_per_bed = market_data[area][beds]['average'] / beds
+    this_price_per_bed = property['price'] / beds
+    
+    value_ratio = this_price_per_bed / avg_price_per_bed
+    
+    if value_ratio < 0.85:
+        return {'rating': 'excellent', 'reason': 'Below market average by 15%+'}
+    elif value_ratio < 0.95:
+        return {'rating': 'good', 'reason': 'Slightly below market average'}
+    elif value_ratio < 1.05:
+        return {'rating': 'fair', 'reason': 'At market average'}
+    else:
+        return {'rating': 'poor', 'reason': 'Above market average'}
+```
 
 ---
 
