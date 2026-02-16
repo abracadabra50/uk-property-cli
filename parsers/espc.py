@@ -41,10 +41,9 @@ def categorize(price, beds):
 
 def parse_price(text):
     """Extract price from text"""
-    match = re.search(r'£([\d,]+)', text)
-    if match:
-        return int(match.group(1).replace(',', ''))
-    return 0
+    # Remove everything except digits
+    digits = re.sub(r'[^\d]', '', str(text))
+    return int(digits) if digits else 0
 
 def parse_properties(html):
     """Extract property data from ESPC HTML"""
@@ -82,10 +81,10 @@ def parse_properties(html):
         if is_bad_area(address):
             continue
         
-        # Extract price
+        # Extract price (handle HTML comments between text and price)
         price = 0
         price_text = "Price on application"
-        price_match = re.search(r'(Offers Over|Fixed Price|Offers From)\s*£([\d,]+)', section)
+        price_match = re.search(r'(Offers Over|Fixed Price|Offers From).*?£([\d,]+)', section, re.DOTALL)
         if price_match:
             price_text = f"{price_match.group(1)} £{price_match.group(2)}"
             price = parse_price(price_match.group(2))
