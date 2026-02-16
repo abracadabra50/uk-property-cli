@@ -1,173 +1,314 @@
 ---
 name: edinburgh-property
-description: Fetch property listings from Edinburgh portals (ESPC, Rightmove, Zoopla). Returns structured JSON for investment opportunities and family homes. Filters out undesirable areas automatically.
+description: UK-wide property search across Rightmove, Zoopla, ESPC. Provides tools for fetching, deduplicating, filtering, and comparing properties. Agent builds briefings using these tools.
 ---
 
-# Edinburgh Property Search Skill
+# UK Property CLI Skill
 
-Fetch property listings from multiple UK property portals with Edinburgh area filtering built in.
+## When to Use
 
-## Usage
+Trigger this skill when the user:
+- Asks about properties for sale anywhere in UK
+- Wants investment opportunities or family homes
+- Requests property market data
+- Asks for daily property briefings
+- Wants price drop alerts
+
+## How It Works
+
+**The CLI provides raw tools. Your agent builds the intelligence.**
+
+```
+CLI Tools:           Agent Builds:
+├── fetch            → Daily briefings
+├── dedupe           → Price alerts
+├── filter           → Market analysis
+└── compare          → Smart recommendations
+```
+
+## Tools Available
+
+### 1. Fetch Properties
 
 ```bash
-# Fetch from single portal
-bash {baseDir}/fetch.sh espc 4
+# Fetch from all portals (automatic parallel fetch)
+{baseDir}/fetch.sh all 4
 
-# Fetch from all portals
-bash {baseDir}/fetch.sh all 4
-
-# Get formatted briefing
-bash {baseDir}/briefing.sh
+# Individual portals
+python3 {baseDir}/parsers/espc.py 4        # Edinburgh
+python3 {baseDir}/parsers/rightmove.py 4   # UK-wide
+python3 {baseDir}/parsers/zoopla.py 4      # UK-wide + sold prices
 ```
 
-## Output Format
+**Output:** JSON with normalized property data
 
-```json
-{
-  "portal": "espc",
-  "fetched_at": "2026-02-16T01:48:00Z",
-  "count": 12,
-  "properties": [
-    {
-      "id": "36362802",
-      "portal": "espc",
-      "title": "End Terraced House",
-      "price": 450000,
-      "price_text": "Offers Over £450,000",
-      "beds": 4,
-      "baths": 2,
-      "property_type": "terraced",
-      "address": "1 Buckstone Circle",
-      "area": "Buckstone",
-      "postcode": "EH10 6XB",
-      "description": "Located within the sought after Buckstone area...",
-      "url": "https://espc.com/property/...",
-      "image_url": "https://...",
-      "images": ["https://..."],
-      "features": ["Garden", "Parking"],
-      "category": "family"
-    }
-  ]
-}
-```
+### 2. Deduplicate
 
-## Supported Portals
-
-### ESPC (Edinburgh Specialist)
-- Status: ✅ Implemented
-- Data Source: Native curl + Python parsing (zero dependencies)
-- Coverage: Edinburgh & Lothians
-- Update Frequency: Real-time
-- Future: Extract embedded JSON for faster parsing
-
-### Rightmove
-- Status: ⚠️ Stub (ready to implement)
-- Data Source: TBD (HTML or API)
-- Coverage: UK-wide
-- Future: Reverse engineer internal API
-
-### Zoopla  
-- Status: ⚠️ Stub (ready to implement)
-- Data Source: TBD (HTML or API)
-- Coverage: UK-wide
-- Future: Reverse engineer internal API
-
-## Area Filtering
-
-Automatically excludes:
-- Moredun, Niddrie, Wester Hailes
-- Sighthill, Muirhouse, Pilton
-- Kirkliston (not Edinburgh proper)
-- Musselburgh, Dalkeith (outlying)
-- Granton, Liberton
-
-Includes desirable areas:
-- City Centre, Stockbridge, Marchmont
-- Morningside, Bruntsfield, Colinton
-- Corstorphine, Cramond, Blackhall
-- Trinity, Portobello, Leith (waterfront)
-
-## Categories
-
-Properties are auto-categorized:
-
-**Investment:**
-- Price < £250k
-- Needs renovation
-- Auction properties
-- High rental yield potential
-
-**Family:**
-- 4+ bedrooms
-- Garden space
-- Good school catchment
-- Office/study room
-
-## Integration
-
-### Daily Briefing
 ```bash
-# Called by periodic event at 9am
-bash {baseDir}/briefing.sh
+# Merge properties across portals
+python3 {baseDir}/dedupe.py cache/espc.json cache/rightmove.json cache/zoopla.json
 ```
 
-### Manual Search
+**What it does:**
+- Matches properties by address similarity (85% threshold)
+- Merges data from multiple portals
+- Takes best price, combines images
+- Typical: 57 properties → 38 unique (33% duplicates)
+
+**Output:** JSON with unique properties + deduplication stats
+
+### 3. Filter
+
 ```bash
-# Get all 4-bed properties
-bash {baseDir}/fetch.sh all 4 | jq '.properties[] | {price, address, url}'
+# Filter by preferences
+python3 {baseDir}/filter.py properties.json \
+  --areas "EH10,EH12,EH4" \
+  --exclude "Niddrie,Moredun" \
+  --max-price 600000 \
+  --min-beds 4
+
+# Use built-in Edinburgh presets
+python3 {baseDir}/filter.py properties.json --use-defaults --max-price 600000
 ```
 
-## Future Enhancements
+**Output:** JSON with filtered properties
 
-### Phase 1 (Current)
-- ✅ ESPC HTML scraping
-- ✅ Area filtering
-- ✅ JSON output format
-- ⚠️ Rightmove/Zoopla stubs
+### 4. Compare Snapshots
 
-### Phase 2 (Next)
-- Extract ESPC embedded JSON (faster)
-- Implement Rightmove fetcher
-- Implement Zoopla fetcher
-- Cache results (1 hour TTL)
+```bash
+# Detect changes between snapshots
+python3 {baseDir}/compare.py cache/2026-02-15.json cache/2026-02-16.json
+```
 
-### Phase 3 (Future)
-- Reverse engineer portal APIs
-- Real-time alerts on new listings
-- Price tracking & history
-- Investment analysis (yield, ROI)
-- School catchment data
-- Commute time calculations
+**Output:** JSON with:
+- `new_listings`: Properties not in yesterday
+- `removed_listings`: Properties removed from market
+- `price_changes`: Price reductions/increases
 
-## Files
+### 5. User Preferences
+
+```bash
+# Interactive setup (one-time)
+python3 {baseDir}/setup.py
+
+# Loads from preferences.json
+cat {baseDir}/preferences.json
+```
+
+**Contains:**
+- Search criteria (beds, price, types)
+- Area preferences (desired, excluded, premium)
+- Scoring weights
+- Deduplication settings
+
+---
+
+## Agent Workflow Examples
+
+### Daily Property Briefing
+
+```bash
+# 1. Fetch from all portals
+{baseDir}/fetch.sh all 4 > /tmp/all-properties.json
+
+# 2. Deduplicate
+python3 {baseDir}/dedupe.py /tmp/all-properties.json > /tmp/deduped.json
+
+# 3. Filter by preferences
+python3 {baseDir}/filter.py /tmp/deduped.json \
+  --use-defaults \
+  --max-price 600000 > /tmp/filtered.json
+
+# 4. Compare with yesterday
+python3 {baseDir}/compare.py \
+  {baseDir}/cache/2026-02-15.json \
+  /tmp/filtered.json > /tmp/comparison.json
+
+# 5. Parse results and build Block Kit briefing
+python3 << 'EOF'
+import json
+
+with open('/tmp/comparison.json') as f:
+    comp = json.load(f)
+
+print(f"🏠 Daily Briefing")
+print(f"New listings: {len(comp['new_listings'])}")
+print(f"Price changes: {len(comp['price_changes'])}")
+
+for prop in comp['new_listings'][:5]:
+    print(f"- {prop['address']}: £{prop['price']:,}")
+EOF
+
+# 6. Send to Slack via Block Kit
+# (Agent formats Block Kit message with images, buttons, etc)
+
+# 7. Save today's snapshot for tomorrow
+cp /tmp/filtered.json {baseDir}/cache/$(date +%Y-%m-%d).json
+```
+
+### Price Drop Alert
+
+```bash
+# User: "Alert me if any properties drop below £500k"
+
+# 1. Fetch current properties
+{baseDir}/fetch.sh all 4 > /tmp/current.json
+
+# 2. Compare with saved snapshot
+python3 {baseDir}/compare.py \
+  {baseDir}/cache/saved-properties.json \
+  /tmp/current.json > /tmp/changes.json
+
+# 3. Parse price drops
+python3 << 'EOF'
+import json
+
+with open('/tmp/changes.json') as f:
+    changes = json.load(f)
+
+for change in changes['price_changes']:
+    if change['change'] < 0 and change['new_price'] < 500000:
+        prop = change['property']
+        print(f"🚨 Price Drop!")
+        print(f"{prop['address']}")
+        print(f"Was: £{change['old_price']:,}")
+        print(f"Now: £{change['new_price']:,}")
+        print(f"Saved: £{abs(change['change']):,}")
+EOF
+```
+
+### Investment Opportunities
+
+```bash
+# User: "Find investment properties under £250k"
+
+# 1. Fetch all properties
+{baseDir}/fetch.sh all 1 > /tmp/all.json  # 1+ beds for investments
+
+# 2. Dedupe
+python3 {baseDir}/dedupe.py /tmp/all.json > /tmp/deduped.json
+
+# 3. Filter to investment criteria
+python3 {baseDir}/filter.py /tmp/deduped.json \
+  --max-price 250000 \
+  --category investment > /tmp/investments.json
+
+# 4. Calculate rental yield
+python3 << 'EOF'
+import json
+
+with open('/tmp/investments.json') as f:
+    data = json.load(f)
+
+# Edinburgh rental yields
+rent_estimates = {1: 900, 2: 1200, 3: 1600}
+
+for prop in data['properties']:
+    monthly = rent_estimates.get(prop['beds'], 1000)
+    annual = monthly * 12
+    yield_pct = (annual / prop['price']) * 100
+    
+    prop['rental_yield'] = yield_pct
+    prop['monthly_rent'] = monthly
+
+# Sort by yield
+sorted_props = sorted(data['properties'], 
+                     key=lambda x: x.get('rental_yield', 0), 
+                     reverse=True)
+
+print(f"Top 5 Investment Opportunities:")
+for prop in sorted_props[:5]:
+    print(f"\n{prop['address']}")
+    print(f"£{prop['price']:,} | {prop['beds']} bed")
+    print(f"Yield: {prop['rental_yield']:.1f}%")
+EOF
+```
+
+### Market Analysis
+
+```bash
+# User: "What's the average price in Morningside?"
+
+# 1. Fetch Edinburgh properties
+python3 {baseDir}/parsers/espc.py 4 > /tmp/espc.json
+
+# 2. Filter to Morningside
+python3 {baseDir}/filter.py /tmp/espc.json \
+  --areas "Morningside,EH10" > /tmp/morningside.json
+
+# 3. Calculate statistics
+python3 << 'EOF'
+import json
+import statistics
+
+with open('/tmp/morningside.json') as f:
+    data = json.load(f)
+
+prices = [p['price'] for p in data['properties'] if p['price'] > 0]
+
+print(f"📊 Morningside Market Analysis")
+print(f"Properties: {len(prices)}")
+print(f"Average: £{sum(prices) // len(prices):,}")
+print(f"Median: £{statistics.median(prices):,}")
+print(f"Range: £{min(prices):,} - £{max(prices):,}")
+EOF
+```
+
+---
+
+## Loading User Preferences
+
+```python
+import json
+
+# Load user's configured preferences
+with open('{baseDir}/preferences.json') as f:
+    prefs = json.load(f)
+
+# Use in filtering
+desired_areas = prefs['areas']['desired']
+max_price = prefs['search']['max_price']
+min_beds = prefs['search']['min_beds']
+
+# Use in scoring
+premium_areas = prefs['areas']['premium']
+area_weights = prefs['scoring']['area_weights']
+```
+
+---
+
+## File Structure
 
 ```
 {baseDir}/
-├── SKILL.md           # This file
-├── fetch.sh           # Main fetcher script
-├── briefing.sh        # Daily briefing formatter
 ├── parsers/
-│   ├── espc.py       # ESPC parser
-│   ├── rightmove.py  # Rightmove parser (TODO)
-│   └── zoopla.py     # Zoopla parser (TODO)
-└── cache/            # Cached results
+│   ├── espc.py          # Edinburgh specialist
+│   ├── rightmove.py     # UK-wide
+│   └── zoopla.py        # UK-wide + sold prices
+├── dedupe.py            # Deduplication engine
+├── filter.py            # Filtering tool
+├── compare.py           # Snapshot comparison
+├── setup.py             # Interactive preferences setup
+├── preferences.json     # User configuration
+├── fetch.sh             # Unified dispatcher
+└── cache/               # Snapshots for comparison
+    ├── 2026-02-15.json
+    └── 2026-02-16.json
 ```
 
-## Dependencies
+---
 
-**Zero external dependencies!**
+## Coverage
 
-- `curl` - Built-in HTTP client
-- `python3` - Built-in (for parsing)
-- `jq` - Optional (JSON formatting only)
+- **UK**: 95%+ (Rightmove + Zoopla)
+- **Scotland**: 99% (+ ESPC for Edinburgh)
+- **Portals**: 3 working (ESPC, Rightmove, Zoopla)
+- **Dependencies**: Zero for 2/3 parsers, Firecrawl for Zoopla (~£1/month)
 
-All tools are standard on macOS/Linux. No npm packages, no API keys, no costs.
+---
 
-## Notes
+## GitHub
 
-This skill is designed to be extended. Each portal fetcher is isolated, making it easy to:
-1. Add new portals
-2. Switch from HTML scraping to API calls
-3. Improve parsers without affecting others
+Private repository: https://github.com/abracadabra50/uk-property-cli
 
-Perfect foundation for `uk-property-cli` if we decide to build it as a product.
+Full documentation in README.md with examples, Block Kit templates, and agent integration patterns.

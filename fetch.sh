@@ -25,7 +25,6 @@ COMMANDS:
     dedupe <files...>       Deduplicate properties
     filter <file> [opts]    Filter properties
     compare <old> <new>     Compare snapshots
-    briefing [opts]         Generate full briefing
     
 EXAMPLES:
     # Fetch all portals (4+ beds)
@@ -36,9 +35,6 @@ EXAMPLES:
     
     # Filter to good areas, max £600k
     ./fetch.sh filter cache/all.json --use-defaults --max-price 600000
-    
-    # Full briefing with filtering
-    ./fetch.sh briefing --max-price 600000
     
 EOF
     exit 1
@@ -99,10 +95,6 @@ print(json.dumps({'properties': all_props}, indent=2))
     
     compare)
         python3 "$SCRIPT_DIR/compare.py" "$@"
-        ;;
-    
-    briefing)
-        python3 "$SCRIPT_DIR/briefing.py" "$@"
         ;;
     
     *)
