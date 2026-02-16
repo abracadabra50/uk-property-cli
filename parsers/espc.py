@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ESPC Property Parser
-Fetches and parses Edinburgh property listings from ESPC
+Extracts property data from ESPC HTML DOM
 """
 
 import sys, json, subprocess, re
@@ -28,13 +28,10 @@ def fetch_page(beds):
 
 def is_bad_area(address):
     """Check if property is in excluded area"""
-    return any(bad in address for bad in BAD_AREAS)
+    return any(bad.lower() in address.lower() for bad in BAD_AREAS)
 
-def categorize(prop):
+def categorize(price, beds):
     """Categorize as investment or family"""
-    price = prop.get("price", 999999)
-    beds = prop.get("beds", 0)
-    
     if price < 250000:
         return "investment"
     elif beds >= 4:
@@ -42,42 +39,99 @@ def categorize(prop):
     else:
         return "other"
 
+def parse_price(text):
+    """Extract price from text"""
+    match = re.search(r'£([\d,]+)', text)
+    if match:
+        return int(match.group(1).replace(',', ''))
+    return 0
+
 def parse_properties(html):
     """Extract property data from ESPC HTML"""
     properties = []
     
-    # Look for property card patterns in HTML
-    # ESPC uses specific class names and structure
+    # Find all property IDs
+    property_ids = re.findall(r'id="property-(\d+)-', html)
+    unique_ids = list(dict.fromkeys(property_ids))  # Remove duplicates
     
-    # This is a simplified parser - would need full implementation
-    # For now, return sample structure to show it works
+    print(f"Found {len(unique_ids)} properties", file=sys.stderr)
     
-    # Sample property data (would extract from HTML)
-    sample_props = [
-        {
-            "id": "36362802",
-            "title": "End Terraced House, Buckstone",
-            "price": 450000,
-            "price_text": "Offers Over £450,000",
-            "beds": 4,
-            "baths": 2,
-            "property_type": "terraced",
-            "address": "1 Buckstone Circle, Edinburgh",
-            "area": "Buckstone",
-            "postcode": "EH10 6XB",
-            "description": "Located within the sought after Buckstone area...",
-            "url": "https://espc.com/property/1-buckstone-circle-edinburgh-eh10-6xb/36362802",
-            "image_url": "https://images.espc.com/espc/property-images/p-36362802-1.jpg",
-            "images": ["https://images.espc.com/espc/property-images/p-36362802-1.jpg"],
-            "features": ["Garden", "Parking", "Virtual Tour"]
+    for prop_id in unique_ids[:20]:  # Limit to 20
+        # Find the property section
+        pattern = rf'id="property-{prop_id}-.*?(?=id="property-\d+|class="pageWrap"|$)'
+        match = re.search(pattern, html, re.DOTALL)
+        
+        if not match:
+            continue
+        
+        section = match.group(0)
+        
+        # Extract URL and address
+        url_match = re.search(r'href="(/property/([^"]+))"', section)
+        if not url_match:
+            continue
+        
+        url_path = url_match.group(1)
+        address_slug = url_match.group(2).split('/')[0]  # e.g., "1-buckstone-circle-edinburgh-eh10-6xb"
+        
+        # Parse address from slug
+        address = address_slug.replace('-', ' ').title()
+        address = re.sub(r' Eh(\d+)', r', EH\1', address)  # Fix postcode
+        
+        # Skip bad areas
+        if is_bad_area(address):
+            continue
+        
+        # Extract price
+        price = 0
+        price_text = "Price on application"
+        price_match = re.search(r'(Offers Over|Fixed Price|Offers From)\s*£([\d,]+)', section)
+        if price_match:
+            price_text = f"{price_match.group(1)} £{price_match.group(2)}"
+            price = parse_price(price_match.group(2))
+        
+        # Extract beds/baths
+        beds = int(BEDS)  # Default to search parameter
+        beds_match = re.search(r'(\d+)\s+bed', section, re.IGNORECASE)
+        if beds_match:
+            beds = int(beds_match.group(1))
+        
+        baths = 0
+        baths_match = re.search(r'(\d+)\s+bath', section, re.IGNORECASE)
+        if baths_match:
+            baths = int(baths_match.group(1))
+        
+        # Extract first image
+        img_match = re.search(r'data-src="([^"]+)"', section)
+        image_url = img_match.group(1) if img_match else ""
+        
+        # Extract postcode
+        postcode = ""
+        pc_match = re.search(r'(EH\d+\s*\d*\w*)', address.upper())
+        if pc_match:
+            postcode = pc_match.group(1)
+        
+        prop = {
+            "id": prop_id,
+            "title": f"{beds}-bed house" if beds else "Property",
+            "price": price,
+            "price_text": price_text,
+            "beds": beds,
+            "baths": baths,
+            "property_type": "house",
+            "address": address,
+            "area": address.split(',')[-1].strip() if ',' in address else address.split()[-1],
+            "postcode": postcode,
+            "description": "",
+            "url": f"https://espc.com{url_path.split('?')[0]}",
+            "image_url": image_url,
+            "images": [image_url] if image_url else [],
+            "features": [],
+            "portal": "espc",
+            "category": categorize(price, beds)
         }
-    ]
-    
-    for prop in sample_props:
-        if not is_bad_area(prop["address"]):
-            prop["portal"] = "espc"
-            prop["category"] = categorize(prop)
-            properties.append(prop)
+        
+        properties.append(prop)
     
     return properties
 
