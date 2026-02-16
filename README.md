@@ -793,6 +793,73 @@ Trigger this CLI when you need to:
 - 🔔 Build property alert systems
 - 🤖 Integrate with AI agents (Slack bots, etc.)
 
+## 🔧 Setup & Configuration
+
+### Interactive Setup
+
+```bash
+python3 setup.py
+```
+
+Guides you through configuring:
+- **Search criteria** — Bedrooms, price range, property types
+- **Area preferences** — Desired postcodes, areas to avoid, premium areas
+- **Scoring weights** — How to rank properties
+- **Deduplication** — Automatic duplicate removal (recommended: enabled)
+- **Daily briefings** — Schedule and preferences
+
+**Presets available:**
+- Edinburgh (EH10, EH12, EH4, etc.)
+- Manchester (M20, M21, Didsbury, etc.)
+- London (SW, W, NW postcodes)
+- Custom (configure manually)
+
+Saves to `preferences.json` — edit manually anytime.
+
+### Configuration File
+
+```json
+{
+  "search": {
+    "min_beds": 4,
+    "max_price": 600000
+  },
+  "areas": {
+    "desired": ["EH10", "EH12", "EH4"],
+    "excluded": ["EH17", "Niddrie", "Moredun"],
+    "premium": ["EH10", "EH9"]
+  },
+  "deduplication": {
+    "enabled": true,
+    "threshold": 0.85
+  }
+}
+```
+
+### Deduplication
+
+**Built-in and automatic.** You don't need to call it separately.
+
+When you run `briefing.py`:
+1. Fetches from all portals (57 properties)
+2. **Automatically deduplicates** (→ 38 unique)
+3. Filters by your preferences
+4. Ranks and outputs
+
+**Why automatic?**
+- Properties appear on multiple portals (Rightmove + Zoopla + ESPC)
+- Typical reduction: 30-40% duplicates
+- Merges best data from each portal (lowest price, all images, all URLs)
+
+**Manual control:**
+```bash
+# Standalone deduplication
+python3 dedupe.py espc.json rightmove.json zoopla.json
+
+# Disable in preferences
+{"deduplication": {"enabled": false}}
+```
+
 ### Agent Integration
 
 **The CLI handles data. Your agent handles intelligence.**

@@ -2,16 +2,18 @@
 """
 Generate comprehensive property briefing.
 
-Combines: fetch → dedupe → filter → compare → rank
+Automatically:
+- Fetches from all portals
+- Deduplicates (AUTOMATIC - no separate step needed)
+- Filters by preferences
+- Compares with yesterday
+- Scores and ranks
 
 Usage:
-    python3 briefing.py [--min-beds 4] [--max-price 600000]
+    python3 briefing.py [--config preferences.json]
     
-Outputs JSON briefing with:
-    - New listings
-    - Price changes
-    - Top picks
-    - Statistics
+Or override specific settings:
+    python3 briefing.py --min-beds 3 --max-price 500000
 """
 
 import json
@@ -22,8 +24,22 @@ from pathlib import Path
 import argparse
 
 
-SKILL_DIR = Path(__file__).parent
-CACHE_DIR = SKILL_DIR / 'cache'
+SCRIPT_DIR = Path(__file__).parent
+CACHE_DIR = SCRIPT_DIR / 'cache'
+DEFAULT_CONFIG = SCRIPT_DIR / 'preferences.json'
+
+
+def load_preferences(config_file: Path = None) -> dict:
+    """Load user preferences."""
+    config_path = config_file or DEFAULT_CONFIG
+    
+    if not config_path.exists():
+        print(f"⚠️  No preferences found at {config_path}", file=sys.stderr)
+        print(f"Run: python3 setup.py to configure preferences", file=sys.stderr)
+        return {}
+    
+    with open(config_path) as f:
+        return json.load(f)
 
 
 def fetch_all_portals(min_beds: int = 4) -> dict:
@@ -35,7 +51,7 @@ def fetch_all_portals(min_beds: int = 4) -> dict:
     # ESPC
     try:
         result = subprocess.run(
-            ['python3', str(SKILL_DIR / 'parsers/espc.py'), str(min_beds)],
+            ['python3', str(SCRIPT_DIR / 'parsers/espc.py'), str(min_beds)],
             capture_output=True,
             text=True,
             timeout=30
@@ -48,7 +64,7 @@ def fetch_all_portals(min_beds: int = 4) -> dict:
     # Rightmove
     try:
         result = subprocess.run(
-            ['python3', str(SKILL_DIR / 'parsers/rightmove.py'), str(min_beds)],
+            ['python3', str(SCRIPT_DIR / 'parsers/rightmove.py'), str(min_beds)],
             capture_output=True,
             text=True,
             timeout=30
@@ -61,7 +77,7 @@ def fetch_all_portals(min_beds: int = 4) -> dict:
     # Zoopla
     try:
         result = subprocess.run(
-            ['python3', str(SKILL_DIR / 'parsers/zoopla.py'), str(min_beds)],
+            ['python3', str(SCRIPT_DIR / 'parsers/zoopla.py'), str(min_beds)],
             capture_output=True,
             text=True,
             timeout=30
@@ -83,18 +99,29 @@ def fetch_all_portals(min_beds: int = 4) -> dict:
     }
 
 
-def deduplicate(properties: list) -> dict:
-    """Deduplicate properties."""
+def deduplicate_automatic(properties: list, threshold: float = 0.85) -> dict:
+    """
+    AUTOMATIC deduplication - no separate step needed.
+    
+    This is built into the briefing workflow.
+    Users don't need to call dedupe.py separately.
+    """
     from dedupe import deduplicate as dedupe_func
     
-    unique = dedupe_func(properties)
+    print(f"Deduplicating {len(properties)} properties...", file=sys.stderr)
     
-    return {
+    unique = dedupe_func(properties, threshold)
+    
+    result = {
         'original_count': len(properties),
         'unique_count': len(unique),
         'duplicate_count': len(properties) - len(unique),
         'properties': unique
     }
+    
+    print(f"  ✓ {result['duplicate_count']} duplicates removed", file=sys.stderr)
+    
+    return result
 
 
 def compare_with_yesterday(today_properties: list) -> dict:
@@ -105,7 +132,8 @@ def compare_with_yesterday(today_properties: list) -> dict:
         return {
             'has_comparison': False,
             'new_listings': today_properties,
-            'price_changes': []
+            'price_changes': [],
+            'removed_listings': []
         }
     
     with open(yesterday_file) as f:
@@ -119,16 +147,20 @@ def compare_with_yesterday(today_properties: list) -> dict:
     return comparison
 
 
-def filter_properties(properties: list, min_price: int = None, max_price: int = None) -> dict:
-    """Filter by preferences."""
-    from filter import filter_properties as filter_func, DESIRED_AREAS, EXCLUDED_AREAS
+def filter_by_preferences(properties: list, prefs: dict) -> dict:
+    """Filter using preferences."""
+    from filter import filter_properties as filter_func
+    
+    search = prefs.get('search', {})
+    areas = prefs.get('areas', {})
     
     filtered = filter_func(
         properties,
-        areas=DESIRED_AREAS,
-        exclude=EXCLUDED_AREAS,
-        min_price=min_price,
-        max_price=max_price
+        areas=areas.get('desired'),
+        exclude=areas.get('excluded'),
+        min_price=search.get('min_price'),
+        max_price=search.get('max_price'),
+        min_beds=search.get('min_beds')
     )
     
     return {
@@ -138,46 +170,60 @@ def filter_properties(properties: list, min_price: int = None, max_price: int = 
     }
 
 
-def rank_properties(properties: list) -> list:
-    """Score and rank properties."""
+def rank_by_preferences(properties: list, prefs: dict) -> list:
+    """Score and rank using preferences."""
+    scoring = prefs.get('scoring', {})
+    areas = prefs.get('areas', {})
+    
+    area_weights = scoring.get('area_weights', {'premium': 30, 'excellent': 25, 'good': 20})
+    price_min = scoring.get('price_ideal_min', 400000)
+    price_max = scoring.get('price_ideal_max', 550000)
+    prefer_images = scoring.get('prefer_images', True)
+    prefer_multiple = scoring.get('prefer_multiple_portals', True)
+    
+    premium_areas = areas.get('premium', [])
+    desired_areas = areas.get('desired', [])
+    
     for prop in properties:
         score = 0
         
-        # Price scoring (lower is better within range)
+        # Price scoring
         price = prop.get('price', 0)
-        if 400000 <= price <= 550000:
+        if price_min <= price <= price_max:
             score += 20
-        elif 300000 <= price < 400000:
-            score += 15
-        elif 550000 < price <= 650000:
+        elif price < price_min:
             score += 10
+        elif price <= price_max * 1.2:
+            score += 5
         
         # Area scoring
         postcode = prop.get('postcode', '').upper()
-        if 'EH10' in postcode or 'EH9' in postcode:  # Morningside, Bruntsfield
-            score += 30
-        elif 'EH12' in postcode or 'EH4' in postcode:  # Corstorphine, Cramond
-            score += 25
-        elif 'EH13' in postcode or 'EH14' in postcode:  # Colinton
-            score += 20
+        address = prop.get('address', '').upper()
+        
+        # Premium areas
+        if any(area.upper() in postcode or area.upper() in address for area in premium_areas):
+            score += area_weights['premium']
+        # Other desired areas
+        elif any(area.upper() in postcode or area.upper() in address for area in desired_areas):
+            score += area_weights['good']
         
         # Beds scoring
         beds = prop.get('beds', 0)
         if beds >= 4:
             score += 15
         
-        # Has images
-        if prop.get('image_url') or prop.get('images'):
+        # Images
+        if prefer_images and (prop.get('image_url') or prop.get('images')):
             score += 5
         
-        # Multiple portals (likely accurate listing)
-        portals = prop.get('portals', [prop.get('portal')])
-        if len(portals) > 1:
-            score += 10
+        # Multiple portals
+        if prefer_multiple:
+            portals = prop.get('portals', [prop.get('portal')])
+            if len(portals) > 1:
+                score += 10
         
         prop['score'] = score
     
-    # Sort by score descending
     return sorted(properties, key=lambda x: x.get('score', 0), reverse=True)
 
 
@@ -192,30 +238,53 @@ def save_snapshot(properties: list):
         json.dump({'properties': properties}, f, indent=2)
 
 
-def generate_briefing(min_beds: int = 4, max_price: int = None) -> dict:
-    """Generate full briefing."""
+def generate_briefing(prefs: dict = None, overrides: dict = None) -> dict:
+    """
+    Generate full briefing with automatic deduplication.
+    
+    Args:
+        prefs: User preferences (loaded from config)
+        overrides: CLI argument overrides
+    """
+    prefs = prefs or {}
+    overrides = overrides or {}
+    
+    # Get search criteria (CLI overrides config)
+    min_beds = overrides.get('min_beds') or prefs.get('search', {}).get('min_beds', 4)
+    
     # 1. Fetch all portals
     fetch_result = fetch_all_portals(min_beds)
     
-    # 2. Deduplicate
-    dedupe_result = deduplicate(fetch_result['all_properties'])
+    # 2. AUTOMATIC Deduplication (built-in, no separate step)
+    dedupe_enabled = prefs.get('deduplication', {}).get('enabled', True)
+    dedupe_threshold = prefs.get('deduplication', {}).get('threshold', 0.85)
     
-    # 3. Filter
-    filter_result = filter_properties(
-        dedupe_result['properties'],
-        max_price=max_price
-    )
+    if dedupe_enabled:
+        dedupe_result = deduplicate_automatic(fetch_result['all_properties'], dedupe_threshold)
+    else:
+        dedupe_result = {
+            'original_count': len(fetch_result['all_properties']),
+            'unique_count': len(fetch_result['all_properties']),
+            'duplicate_count': 0,
+            'properties': fetch_result['all_properties']
+        }
+    
+    # 3. Filter by preferences
+    filter_result = filter_by_preferences(dedupe_result['properties'], prefs)
     
     # 4. Compare with yesterday
     comparison = compare_with_yesterday(filter_result['properties'])
     
-    # 5. Rank
-    ranked = rank_properties(filter_result['properties'])
+    # 5. Rank by preferences
+    ranked = rank_by_preferences(filter_result['properties'], prefs)
     
     # 6. Save snapshot
     save_snapshot(filter_result['properties'])
     
     # Build briefing
+    briefing_prefs = prefs.get('briefing', {})
+    max_results = briefing_prefs.get('max_results', 10)
+    
     briefing = {
         'generated_at': datetime.now().isoformat(),
         'stats': {
@@ -226,9 +295,9 @@ def generate_briefing(min_beds: int = 4, max_price: int = None) -> dict:
             'new_listings': len(comparison.get('new_listings', [])),
             'price_changes': len(comparison.get('price_changes', []))
         },
-        'new_listings': comparison.get('new_listings', [])[:10],  # Top 10 new
+        'new_listings': comparison.get('new_listings', [])[:max_results],
         'price_changes': comparison.get('price_changes', []),
-        'top_picks': ranked[:10],  # Top 10 overall
+        'top_picks': ranked[:max_results],
         'all_properties': ranked
     }
     
@@ -237,15 +306,25 @@ def generate_briefing(min_beds: int = 4, max_price: int = None) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description='Generate property briefing')
-    parser.add_argument('--min-beds', type=int, default=4, help='Minimum bedrooms')
-    parser.add_argument('--max-price', type=int, help='Maximum price')
+    parser.add_argument('--config', type=Path, help='Preferences file (default: preferences.json)')
+    parser.add_argument('--min-beds', type=int, help='Override minimum bedrooms')
+    parser.add_argument('--max-price', type=int, help='Override maximum price')
     
     args = parser.parse_args()
     
-    briefing = generate_briefing(
-        min_beds=args.min_beds,
-        max_price=args.max_price
-    )
+    # Load preferences
+    prefs = load_preferences(args.config)
+    
+    # Build overrides
+    overrides = {}
+    if args.min_beds:
+        overrides['min_beds'] = args.min_beds
+    if args.max_price:
+        if 'search' not in prefs:
+            prefs['search'] = {}
+        prefs['search']['max_price'] = args.max_price
+    
+    briefing = generate_briefing(prefs, overrides)
     
     print(json.dumps(briefing, indent=2))
 
