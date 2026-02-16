@@ -52,8 +52,10 @@ Trigger this CLI when users:
 - 📊 **Normalized JSON** — Consistent output format across all portals
 - 🚫 **Area filtering** — Automatically excludes undesirable areas
 - 🏷️ **Smart categorization** — Investment vs family homes
+- 🔔 **Daily briefings** — Automated morning property summaries
+- 🚨 **Smart alerts** — Price drops, new listings, value opportunities
 - 🆓 **Zero dependencies** — Just curl + Python (2/3 parsers)
-- 📈 **99% Edinburgh coverage** — Comprehensive market view
+- 📈 **95% UK coverage** — Comprehensive market view
 - 🤖 **AI agent ready** — Built for automation
 - 📝 **Beautiful docs** — Examples, Block Kit templates, integration guides
 
@@ -267,6 +269,166 @@ show_market_analysis({
     'Chorlton': chorlton,
     'Altrincham': altrincham
 })
+```
+
+### Daily Property Briefing
+
+**Agent workflow:**
+
+```python
+# Scheduled: 9am every day
+
+# 1. Fetch latest properties
+espc = fetch_properties('espc', beds=4)
+rightmove = fetch_properties('rightmove', beds=4)
+zoopla = fetch_properties('zoopla', beds=4)
+
+all_properties = espc + rightmove + zoopla
+
+# 2. Deduplicate across portals
+unique_properties = deduplicate_by_address(all_properties)
+
+# 3. Filter by user preferences
+preferences = load_user_preferences()
+
+matches = [p for p in unique_properties
+           if p['price'] >= preferences['min_price']
+           and p['price'] <= preferences['max_price']
+           and any(area in p['address'] for area in preferences['desired_areas'])
+           and p['beds'] >= preferences['min_beds']]
+
+# 4. Check for new listings
+with open('cache/yesterday.json') as f:
+    yesterday_ids = {p['id'] for p in json.load(f)}
+
+today_ids = {p['id'] for p in matches}
+new_listings = [p for p in matches if p['id'] not in yesterday_ids]
+
+# 5. Rank by score
+for prop in new_listings:
+    prop['score'] = calculate_score(prop, preferences)
+
+top_new = sorted(new_listings, key=lambda x: x['score'], reverse=True)[:10]
+
+# 6. Send daily briefing
+if top_new:
+    send_slack_message(f"""
+    🏠 Daily Property Briefing
+    
+    {len(new_listings)} new properties found
+    {len(matches)} total matches
+    
+    Top 10 new listings:
+    """)
+    
+    for prop in top_new:
+        send_property_card(prop)  # Block Kit card with image, details, buttons
+    
+# 7. Save today's snapshot
+with open('cache/today.json', 'w') as f:
+    json.dump(matches, f)
+```
+
+### Smart Alerts
+
+**Agent workflow:**
+
+```python
+# Monitor for specific triggers
+
+# 1. Price drop alerts
+def check_price_drops():
+    today = fetch_all_saved_properties()
+    yesterday = load_snapshot('yesterday.json')
+    
+    for t in today:
+        for y in yesterday:
+            if same_property(t, y) and t['price'] < y['price']:
+                reduction = y['price'] - t['price']
+                percent = (reduction / y['price']) * 100
+                
+                if percent >= 5:  # Significant drop
+                    send_alert(f"""
+                    🚨 Price Drop Alert
+                    
+                    {t['address']}
+                    Was: £{y['price']:,}
+                    Now: £{t['price']:,}
+                    Saved: £{reduction:,} ({percent:.1f}% off)
+                    
+                    [View Property]({t['url']})
+                    """)
+
+# 2. New property in desired area
+def check_new_premium_properties():
+    premium_areas = ['Didsbury', 'Chorlton', 'Altrincham']
+    
+    new_properties = get_new_listings_today()
+    
+    for prop in new_properties:
+        if any(area in prop['address'] for area in premium_areas):
+            send_alert(f"""
+            ⭐ New Property in Premium Area
+            
+            {prop['address']}
+            £{prop['price']:,} | {prop['beds']} bed
+            
+            Listed: Just now
+            
+            [View Property]({prop['url']})
+            """)
+
+# 3. Price below market average (value alert)
+def check_value_opportunities():
+    new_properties = get_new_listings_today()
+    market_data = load_market_averages()
+    
+    for prop in new_properties:
+        area = prop['area']
+        avg_price = market_data[area][prop['beds']]['average']
+        
+        if prop['price'] < avg_price * 0.85:  # 15%+ below market
+            send_alert(f"""
+            💰 Value Opportunity
+            
+            {prop['address']}
+            £{prop['price']:,} (15% below market avg)
+            
+            Market avg: £{avg_price:,}
+            Saving: £{avg_price - prop['price']:,}
+            
+            [View Property]({prop['url']})
+            """)
+
+# 4. Back on market (was withdrawn, now relisted)
+def check_back_on_market():
+    current = get_all_properties()
+    last_week = load_snapshot('7_days_ago.json')
+    yesterday = load_snapshot('yesterday.json')
+    
+    yesterday_ids = {p['id'] for p in yesterday}
+    last_week_ids = {p['id'] for p in last_week}
+    
+    for prop in current:
+        # Was listed last week, not yesterday, now back
+        if prop['id'] in last_week_ids and prop['id'] not in yesterday_ids:
+            send_alert(f"""
+            🔄 Back on Market
+            
+            {prop['address']}
+            £{prop['price']:,}
+            
+            This property was withdrawn and is now back.
+            Possible price reduction or motivated seller.
+            
+            [View Property]({prop['url']})
+            """)
+
+# Run all checks
+check_price_drops()
+check_new_premium_properties()
+check_value_opportunities()
+check_back_on_market()
 ```
 
 ### Automated Viewings
@@ -529,29 +691,17 @@ Trigger this CLI when you need to:
 - 🔔 Build property alert systems
 - 🤖 Integrate with AI agents (Slack bots, etc.)
 
-### Example Workflow: Daily Property Briefing
+### What Your Agent Can Build
 
-**This CLI provides the data — your agent builds the briefing.**
+**This CLI provides the data — your agent builds the workflows:**
 
-```bash
-# Step 1: Fetch from all portals
-python3 parsers/espc.py 4 > espc.json
-python3 parsers/rightmove.py 4 > rightmove.json
-python3 parsers/zoopla.py 4 > zoopla.json
+1. **Daily Property Briefings** — Automated morning summaries of new listings
+2. **Smart Alerts** — Price drops, back on market, value opportunities
+3. **Investment Analysis** — ROI calculations, rental yield estimates
+4. **Market Reports** — Area statistics, price trends, comparisons
+5. **Automated Viewings** — Extract agent contacts, schedule appointments
 
-# Step 2: Your agent filters & categorizes
-# - Family homes (4+ beds, £450-550k)
-# - Investment opportunities (< £250k)
-# - New listings vs yesterday
-
-# Step 3: Format as Block Kit (Slack)
-# - Property cards with images
-# - Price alerts
-# - Area summaries
-
-# Step 4: Send daily briefing
-# Your automation handles the schedule
-```
+See [Use Cases](#-use-cases) below for complete implementation examples.
 
 ---
 
@@ -600,7 +750,7 @@ python3 parsers/zoopla.py 4 > zoopla.json
   "type": "section",
   "text": {
     "type": "mrkdwn",
-    "text": "*Edinburgh Properties* | Tuesday 16 Feb 2026\n\n*8 new family homes* (4+ beds) | *Average: £587k*"
+    "text": "*Manchester Properties* | Tuesday 16 Feb 2026\n\n*12 new listings* | *3 price drops* | *1 back on market*"
   }
 },
 {
@@ -609,8 +759,60 @@ python3 parsers/zoopla.py 4 > zoopla.json
 {
   "type": "section",
   "fields": [
-    {"type": "mrkdwn", "text": "*Top Pick*\n1 Buckstone Circle\n£450,000 | 4 bed"},
-    {"type": "mrkdwn", "text": "*Price Range*\n£450k - £775k\nAvg: £587k"}
+    {"type": "mrkdwn", "text": "*New in Didsbury*\n4 bed detached\n£425,000"},
+    {"type": "mrkdwn", "text": "*Price Drop*\nChorlton semi\n£380k → £365k"}
+  ]
+},
+{
+  "type": "actions",
+  "elements": [
+    {
+      "type": "button",
+      "text": {"type": "plain_text", "text": "View All (12)"},
+      "action_id": "view_all_new",
+      "style": "primary"
+    },
+    {
+      "type": "button",
+      "text": {"type": "plain_text", "text": "Price Drops (3)"},
+      "action_id": "view_price_drops"
+    }
+  ]
+}
+```
+
+</details>
+
+<details>
+<summary><b>Price Drop Alert Example</b></summary>
+
+```javascript
+{
+  "type": "section",
+  "text": {
+    "type": "mrkdwn",
+    "text": "🚨 *Price Drop Alert*\n\n13 Didsbury Road, Manchester\n\nWas: £425,000\nNow: *£395,000*\n\nSaved: £30,000 (7.1% reduction)\n\nListed 45 days ago — motivated seller."
+  },
+  "accessory": {
+    "type": "image",
+    "image_url": "https://...",
+    "alt_text": "Property"
+  }
+},
+{
+  "type": "actions",
+  "elements": [
+    {
+      "type": "button",
+      "text": {"type": "plain_text", "text": "View Property"},
+      "url": "https://rightmove.co.uk/...",
+      "style": "primary"
+    },
+    {
+      "type": "button",
+      "text": {"type": "plain_text", "text": "Book Viewing"},
+      "action_id": "book_viewing"
+    }
   ]
 }
 ```
