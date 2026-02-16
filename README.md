@@ -83,7 +83,7 @@ Focuses on desirable Edinburgh areas:
 ## Architecture
 
 ```
-edinburgh-property/
+uk-property-cli/
 ├── fetch.sh          # Main fetcher (portal dispatcher)
 ├── parsers/
 │   ├── espc.py      # ESPC implementation ✅
