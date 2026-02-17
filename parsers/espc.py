@@ -44,7 +44,7 @@ def parse_properties(html: str, beds: int, excluded_areas: list[str]) -> list[Pr
 
     print(f"Found {len(unique_ids)} properties", file=sys.stderr)
 
-    for prop_id in unique_ids[:20]:
+    for prop_id in unique_ids:
         # Find the property section
         pattern = rf'id="property-{prop_id}-.*?(?=id="property-\d+|class="pageWrap"|$)'
         match = re.search(pattern, html, re.DOTALL)
@@ -102,7 +102,7 @@ def parse_properties(html: str, beds: int, excluded_areas: list[str]) -> list[Pr
             baths=baths,
             property_type="house",
             address=address,
-            area=address.split(',')[-1].strip() if ',' in address else address.split()[-1],
+            area=address.split(',')[-1].strip() if ',' in address else "",
             postcode=postcode,
             description="",
             url=f"https://espc.com{url_path.split('?')[0]}",

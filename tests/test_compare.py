@@ -55,3 +55,10 @@ class TestCompareSnapshots:
         result = compare_snapshots(YESTERDAY, TODAY)
         assert result["stats"]["yesterday_count"] == 3
         assert result["stats"]["today_count"] == 3
+
+    def test_price_zero_ignored(self):
+        """Properties with price=0 should not appear in price changes."""
+        yesterday = [{"id": "1", "address": "10 High St", "price": 0}]
+        today = [{"id": "1", "address": "10 High St", "price": 500000}]
+        result = compare_snapshots(yesterday, today)
+        assert result["stats"]["price_changes_count"] == 0

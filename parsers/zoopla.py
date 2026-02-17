@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
 Zoopla Property Parser
-Uses Firecrawl API to bypass Cloudflare protection.
-
-NOTE: Requires firecrawl CLI and API key (optional dependency).
+Extracts property data from Zoopla HTML/markdown.
 """
 
 import hashlib
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -21,6 +18,7 @@ from parsers.base import (
     build_result,
     categorize,
     extract_postcode,
+    fetch_url,
     is_bad_area,
     parse_price,
     validate_beds,
@@ -40,37 +38,12 @@ def stable_id(address: str) -> str:
     return hashlib.md5(address.strip().lower().encode()).hexdigest()[:8]
 
 
-def fetch_with_firecrawl(url: str) -> str | None:
-    """Fetch URL using firecrawl to bypass Cloudflare."""
-    # Check if firecrawl is available
-    result = subprocess.run(["which", "firecrawl"], capture_output=True, text=True)
-    if result.returncode != 0:
-        print("Error: firecrawl CLI not found. Install with: npm install -g @mendable/firecrawl-cli", file=sys.stderr)
-        print("Also set FIRECRAWL_API_KEY environment variable", file=sys.stderr)
-        return None
-
-    try:
-        result = subprocess.run(
-            ["firecrawl", "scrape", url, "--format", "markdown"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout
-        print(f"Firecrawl failed: exit code {result.returncode}", file=sys.stderr)
-        return None
-    except subprocess.TimeoutExpired:
-        print("Firecrawl timed out after 30s", file=sys.stderr)
-        return None
-
-
-def parse_properties(markdown: str, excluded_areas: list[str]) -> list[Property]:
-    """Extract property data from Zoopla markdown."""
+def parse_properties(html: str, excluded_areas: list[str]) -> list[Property]:
+    """Extract property data from Zoopla HTML or markdown."""
     properties = []
 
     property_pattern = r'\[£([\d,]+).*?(\d+)\s+beds.*?(\d+)\s+baths.*?\n(.*?)\n(.*?)\]'
-    matches = re.findall(property_pattern, markdown, re.DOTALL)
+    matches = re.findall(property_pattern, html, re.DOTALL)
 
     for price_text, beds_str, baths_str, address, description in matches:
         address = address.strip()
@@ -118,14 +91,14 @@ def main():
         print(result.to_json())
         return
 
-    markdown = fetch_with_firecrawl(url)
-    if not markdown:
-        result = build_result("zoopla", [], error="Firecrawl not available or API key not set")
+    html = fetch_url(url)
+    if not html:
+        result = build_result("zoopla", [], error="Failed to fetch Zoopla")
         print(result.to_json())
         return
 
-    properties = parse_properties(markdown, excluded)
-    result = build_result("zoopla", properties, note="Uses Firecrawl API (requires API key, ~$1/1000 requests)")
+    properties = parse_properties(html, excluded)
+    result = build_result("zoopla", properties)
     print(result.to_json())
 
 

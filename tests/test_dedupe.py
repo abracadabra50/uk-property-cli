@@ -39,6 +39,9 @@ class TestAddressesMatch:
 
 
 class TestMergePropertyData:
+    def test_empty_list(self):
+        assert merge_property_data([]) == {}
+
     def test_merge_basics(self):
         props = [
             {
@@ -100,3 +103,7 @@ class TestDeduplicate:
         ]
         result = deduplicate(props)
         assert len(result) == 2
+
+    def test_empty_list(self):
+        result = deduplicate([])
+        assert result == []

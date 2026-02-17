@@ -26,14 +26,14 @@ def compare_snapshots(yesterday: List[Dict], today: List[Dict]) -> Dict[str, Any
     yesterday_ids = {p['id']: p for p in yesterday}
     today_ids = {p['id']: p for p in today}
 
-    new_ids = set(today_ids.keys()) - set(yesterday_ids.keys())
-    new_listings = [today_ids[pid] for pid in new_ids]
+    yesterday_set = set(yesterday_ids)
+    today_set = set(today_ids)
 
-    removed_ids = set(yesterday_ids.keys()) - set(today_ids.keys())
-    removed_listings = [yesterday_ids[pid] for pid in removed_ids]
+    new_listings = [today_ids[pid] for pid in today_set - yesterday_set]
+    removed_listings = [yesterday_ids[pid] for pid in yesterday_set - today_set]
 
     price_changes = []
-    for pid in set(yesterday_ids.keys()) & set(today_ids.keys()):
+    for pid in yesterday_set & today_set:
         old_price = yesterday_ids[pid].get('price', 0)
         new_price = today_ids[pid].get('price', 0)
 

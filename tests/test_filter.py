@@ -60,3 +60,13 @@ class TestFilterProperties:
         )
         assert len(result) == 1
         assert result[0]["id"] == "1"
+
+    def test_empty_list(self):
+        result = filter_properties([])
+        assert result == []
+
+    def test_missing_keys(self):
+        """Properties with missing keys should not crash."""
+        props = [{"id": "1"}, {"id": "2", "address": "EH10", "postcode": ""}]
+        result = filter_properties(props, areas=["EH10"])
+        assert len(result) == 1

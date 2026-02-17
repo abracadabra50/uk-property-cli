@@ -164,7 +164,7 @@ def validate_beds(beds_arg: Optional[str]) -> int:
         return 4
 
 
-def build_result(portal: str, properties: List[Property], error: str = None, note: str = None) -> PortalResult:
+def build_result(portal: str, properties: List[Property], error: Optional[str] = None, note: Optional[str] = None) -> PortalResult:
     """Build a standard PortalResult from a list of Property objects."""
     return PortalResult(
         portal=portal,

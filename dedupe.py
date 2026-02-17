@@ -48,13 +48,15 @@ def addresses_match(addr1: str, addr2: str, threshold: float = 0.85) -> bool:
 
 def merge_property_data(duplicates: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Merge data from duplicate properties across portals."""
+    if not duplicates:
+        return {}
     merged = duplicates[0].copy()
 
     # Collect all unique images
     all_images = []
     for prop in duplicates:
         all_images.extend(prop.get('images', []))
-    merged['images'] = list(set(filter(None, all_images)))
+    merged['images'] = list(dict.fromkeys(filter(None, all_images)))
 
     # Take best price (lowest non-zero)
     prices = [p['price'] for p in duplicates if p.get('price', 0) > 0]
@@ -66,7 +68,7 @@ def merge_property_data(duplicates: List[Dict[str, Any]]) -> Dict[str, Any]:
     merged['baths'] = max(p.get('baths', 0) for p in duplicates)
 
     # Track which portals have this property
-    merged['portals'] = list(set(p['portal'] for p in duplicates))
+    merged['portals'] = list(dict.fromkeys(p['portal'] for p in duplicates))
 
     # Keep all URLs
     merged['urls'] = {p['portal']: p['url'] for p in duplicates}
@@ -80,7 +82,7 @@ def merge_property_data(duplicates: List[Dict[str, Any]]) -> Dict[str, Any]:
     all_features = []
     for prop in duplicates:
         all_features.extend(prop.get('features', []))
-    merged['features'] = list(set(all_features))
+    merged['features'] = list(dict.fromkeys(all_features))
 
     # Use longest description
     descriptions = [p.get('description', '') for p in duplicates]

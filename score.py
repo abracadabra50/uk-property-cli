@@ -109,7 +109,7 @@ def main():
         with open(input_file) as f:
             data = json.load(f)
             properties = data.get("properties", data) if isinstance(data, dict) else data
-    except Exception as e:
+    except (json.JSONDecodeError, IOError) as e:
         print(f"Error loading {input_file}: {e}", file=sys.stderr)
         sys.exit(1)
 

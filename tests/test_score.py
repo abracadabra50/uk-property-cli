@@ -63,3 +63,15 @@ class TestScoreProperty:
         score_2 = score_property(prop_2bed, DEFAULT_SCORING, desired=[], premium=[])
 
         assert score_5 > score_2
+
+    def test_zero_price(self):
+        """Properties with price=0 should not crash and get no price bonus."""
+        prop = {"address": "10 High St", "postcode": "", "price": 0, "beds": 3, "images": [], "portals": []}
+        score = score_property(prop, DEFAULT_SCORING, desired=[], premium=[])
+        assert score >= 0
+
+    def test_empty_property(self):
+        """Minimal property dict should not crash."""
+        prop = {"address": "", "postcode": "", "price": 0, "beds": 0, "images": [], "portals": []}
+        score = score_property(prop, DEFAULT_SCORING, desired=[], premium=[])
+        assert score == 0

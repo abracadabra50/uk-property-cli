@@ -4,7 +4,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CACHE_DIR="$SCRIPT_DIR/cache"
+export CACHE_DIR="$SCRIPT_DIR/cache"
 
 # Create cache directory
 mkdir -p "$CACHE_DIR"
@@ -81,23 +81,23 @@ case "$COMMAND" in
         python3 -c "
 import json, sys, os
 
-cache_dir = '$CACHE_DIR'
+cache_dir = os.environ['CACHE_DIR']
 all_props = []
 portals_ok = []
 portals_err = []
 
 for portal in ['espc', 'rightmove', 'zoopla']:
-    path = os.path.join(cache_dir, f'{portal}.json')
+    path = os.path.join(cache_dir, portal + '.json')
     try:
         with open(path) as f:
             data = json.load(f)
         if data.get('error'):
-            portals_err.append(f\"{portal}: {data['error']}\")
+            portals_err.append(portal + ': ' + data['error'])
         else:
             all_props.extend(data.get('properties', []))
             portals_ok.append(portal)
     except (json.JSONDecodeError, FileNotFoundError, KeyError) as e:
-        portals_err.append(f'{portal}: {e}')
+        portals_err.append(portal + ': ' + str(e))
 
 result = {
     'count': len(all_props),
@@ -110,7 +110,11 @@ if portals_err:
 print(json.dumps(result, indent=2))
 " > "$CACHE_DIR/all.json"
 
-        echo "Done: $(python3 -c "import json; d=json.load(open('$CACHE_DIR/all.json')); print(f\"{d['count']} properties from {', '.join(d['portals_ok'])}\")")" >&2
+        echo "Done: $(CACHE_DIR="$CACHE_DIR" python3 -c "
+import json, os
+d = json.load(open(os.path.join(os.environ['CACHE_DIR'], 'all.json')))
+print(str(d['count']) + ' properties from ' + ', '.join(d['portals_ok']))
+")" >&2
         cat "$CACHE_DIR/all.json"
         ;;
 
