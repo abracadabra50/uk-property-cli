@@ -4,7 +4,7 @@ Filter properties by area, price, beds, etc.
 
 Usage:
     python3 filter.py <properties.json> [options]
-    
+
 Options:
     --areas EH10,EH12,EH4      Desired postcodes/areas
     --exclude EH17,Niddrie     Areas to exclude
@@ -12,100 +12,61 @@ Options:
     --max-price 600000         Maximum price
     --min-beds 4               Minimum bedrooms
     --category family          Category filter
+    --use-defaults             Use areas from preferences.json
 """
 
+import argparse
 import json
 import sys
-import argparse
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional
 
-
-# Edinburgh area configuration
-DESIRED_AREAS = [
-    'EH10',  # Morningside
-    'EH12',  # Corstorphine
-    'EH13',  # Oxgangs, Colinton
-    'EH14',  # Juniper Green, Colinton
-    'EH4',   # Davidson's Mains, Cramond
-    'EH5',   # Leith
-    'EH6',   # Leith
-    'EH15',  # Portobello, Joppa
-    'EH3',   # Stockbridge
-    'EH9',   # Marchmont, Bruntsfield
-]
-
-EXCLUDED_AREAS = [
-    'EH17',  # Liberton (some areas)
-    'Moredun',
-    'Niddrie',
-    'Wester Hailes',
-    'Sighthill',
-    'Muirhouse',
-    'Pilton',
-    'Granton',
-    'EH29',  # Kirkliston
-]
+from config import get_desired_areas, get_excluded_areas
 
 
 def filter_properties(
     properties: List[Dict[str, Any]],
-    areas: List[str] = None,
-    exclude: List[str] = None,
-    min_price: int = None,
-    max_price: int = None,
-    min_beds: int = None,
-    category: str = None
+    areas: Optional[List[str]] = None,
+    exclude: Optional[List[str]] = None,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    min_beds: Optional[int] = None,
+    category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Filter properties by criteria.
-    
-    Args:
-        properties: List of property dicts
-        areas: Desired areas/postcodes (case-insensitive partial match)
-        exclude: Areas to exclude (case-insensitive partial match)
-        min_price: Minimum price
-        max_price: Maximum price
-        min_beds: Minimum bedrooms
-        category: Category filter (investment, family, other)
-    
-    Returns:
-        Filtered list of properties
-    """
+    """Filter properties by criteria."""
     filtered = properties
-    
-    # Area filtering
+
     if areas:
         areas_lower = [a.lower() for a in areas]
         filtered = [
             p for p in filtered
-            if any(area in p.get('address', '').lower() or area in p.get('postcode', '').lower() 
-                   for area in areas_lower)
+            if any(
+                area in p.get('address', '').lower() or area in p.get('postcode', '').lower()
+                for area in areas_lower
+            )
         ]
-    
-    # Exclude areas
+
     if exclude:
         exclude_lower = [e.lower() for e in exclude]
         filtered = [
             p for p in filtered
-            if not any(excl in p.get('address', '').lower() or excl in p.get('postcode', '').lower()
-                      for excl in exclude_lower)
+            if not any(
+                excl in p.get('address', '').lower() or excl in p.get('postcode', '').lower()
+                for excl in exclude_lower
+            )
         ]
-    
-    # Price filtering
+
     if min_price is not None:
         filtered = [p for p in filtered if p.get('price', 0) >= min_price]
-    
+
     if max_price is not None:
         filtered = [p for p in filtered if p.get('price', 0) <= max_price]
-    
-    # Bedroom filtering
+
     if min_beds is not None:
         filtered = [p for p in filtered if p.get('beds', 0) >= min_beds]
-    
-    # Category filtering
+
     if category:
         filtered = [p for p in filtered if p.get('category') == category]
-    
+
     return filtered
 
 
@@ -118,10 +79,10 @@ def main():
     parser.add_argument('--max-price', type=int, help='Maximum price')
     parser.add_argument('--min-beds', type=int, help='Minimum bedrooms')
     parser.add_argument('--category', choices=['investment', 'family', 'other'], help='Category filter')
-    parser.add_argument('--use-defaults', action='store_true', help='Use default Edinburgh areas')
-    
+    parser.add_argument('--use-defaults', action='store_true', help='Use areas from preferences.json')
+
     args = parser.parse_args()
-    
+
     # Load properties
     try:
         with open(args.input_file) as f:
@@ -130,20 +91,20 @@ def main():
     except Exception as e:
         print(f"Error loading {args.input_file}: {e}", file=sys.stderr)
         sys.exit(1)
-    
-    # Parse areas
+
+    # Parse areas - use config when --use-defaults
     areas = None
     if args.use_defaults:
-        areas = DESIRED_AREAS
+        areas = get_desired_areas()
     elif args.areas:
         areas = [a.strip() for a in args.areas.split(',')]
-    
+
     exclude = None
     if args.use_defaults:
-        exclude = EXCLUDED_AREAS
+        exclude = get_excluded_areas()
     elif args.exclude:
         exclude = [e.strip() for e in args.exclude.split(',')]
-    
+
     # Filter
     original_count = len(properties)
     filtered = filter_properties(
@@ -153,10 +114,9 @@ def main():
         min_price=args.min_price,
         max_price=args.max_price,
         min_beds=args.min_beds,
-        category=args.category
+        category=args.category,
     )
-    
-    # Output
+
     result = {
         'filtering': {
             'original_count': original_count,
@@ -168,12 +128,12 @@ def main():
                 'min_price': args.min_price,
                 'max_price': args.max_price,
                 'min_beds': args.min_beds,
-                'category': args.category
-            }
+                'category': args.category,
+            },
         },
-        'properties': filtered
+        'properties': filtered,
     }
-    
+
     print(json.dumps(result, indent=2))
 
 

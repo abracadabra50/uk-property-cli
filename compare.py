@@ -4,70 +4,63 @@ Compare property snapshots to detect changes.
 
 Usage:
     python3 compare.py <yesterday.json> <today.json>
-    
+
 Output:
-    New listings, price changes, removed listings
+    New listings, price changes, removed listings.
 """
 
 import json
 import sys
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 
 def compare_snapshots(yesterday: List[Dict], today: List[Dict]) -> Dict[str, Any]:
     """
     Compare two property snapshots.
-    
+
     Returns dict with:
         - new_listings: Properties in today but not yesterday
         - removed_listings: Properties in yesterday but not today
         - price_changes: Properties with different prices
     """
-    # Build ID sets
     yesterday_ids = {p['id']: p for p in yesterday}
     today_ids = {p['id']: p for p in today}
-    
-    # Find new listings
+
     new_ids = set(today_ids.keys()) - set(yesterday_ids.keys())
-    new_listings = [today_ids[id] for id in new_ids]
-    
-    # Find removed listings
+    new_listings = [today_ids[pid] for pid in new_ids]
+
     removed_ids = set(yesterday_ids.keys()) - set(today_ids.keys())
-    removed_listings = [yesterday_ids[id] for id in removed_ids]
-    
-    # Find price changes
+    removed_listings = [yesterday_ids[pid] for pid in removed_ids]
+
     price_changes = []
-    for id in set(yesterday_ids.keys()) & set(today_ids.keys()):
-        old = yesterday_ids[id]
-        new = today_ids[id]
-        
-        old_price = old.get('price', 0)
-        new_price = new.get('price', 0)
-        
+    for pid in set(yesterday_ids.keys()) & set(today_ids.keys()):
+        old_price = yesterday_ids[pid].get('price', 0)
+        new_price = today_ids[pid].get('price', 0)
+
         if old_price > 0 and new_price > 0 and old_price != new_price:
-            change = {
-                'property': new,
+            price_changes.append({
+                'property': today_ids[pid],
                 'old_price': old_price,
                 'new_price': new_price,
                 'change': new_price - old_price,
-                'change_percent': round(((new_price - old_price) / old_price) * 100, 1)
-            }
-            price_changes.append(change)
-    
-    # Sort price changes by percentage
+                'change_percent': round(((new_price - old_price) / old_price) * 100, 1),
+            })
+
     price_changes.sort(key=lambda x: x['change_percent'])
-    
+
     return {
         'new_listings': new_listings,
         'removed_listings': removed_listings,
         'price_changes': price_changes,
         'stats': {
+            'yesterday_count': len(yesterday),
+            'today_count': len(today),
             'new_count': len(new_listings),
             'removed_count': len(removed_listings),
             'price_changes_count': len(price_changes),
             'price_drops': len([c for c in price_changes if c['change'] < 0]),
-            'price_increases': len([c for c in price_changes if c['change'] > 0])
-        }
+            'price_increases': len([c for c in price_changes if c['change'] > 0]),
+        },
     }
 
 
@@ -77,11 +70,10 @@ def main():
         print("\nExample:")
         print("  python3 compare.py cache/2026-02-15.json cache/2026-02-16.json")
         sys.exit(1)
-    
+
     yesterday_file = sys.argv[1]
     today_file = sys.argv[2]
-    
-    # Load snapshots
+
     try:
         with open(yesterday_file) as f:
             yesterday_data = json.load(f)
@@ -89,7 +81,7 @@ def main():
     except Exception as e:
         print(f"Error loading {yesterday_file}: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     try:
         with open(today_file) as f:
             today_data = json.load(f)
@@ -97,10 +89,8 @@ def main():
     except Exception as e:
         print(f"Error loading {today_file}: {e}", file=sys.stderr)
         sys.exit(1)
-    
-    # Compare
+
     result = compare_snapshots(yesterday, today)
-    
     print(json.dumps(result, indent=2))
 
 
