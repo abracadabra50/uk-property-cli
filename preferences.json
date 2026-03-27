@@ -11,15 +11,15 @@
     "property_types": ["house", "detached", "semi-detached"]
   },
   "areas": {
+    "eh_postcodes_only": true,
     "desired": [
-      "EH10",
-      "EH12",
-      "EH13",
-      "EH14",
-      "EH4",
-      "EH9",
-      "EH3",
-      "EH15"
+      "EH1", "EH2", "EH3", "EH4", "EH5", "EH6", "EH7", "EH8", "EH9",
+      "EH10", "EH11", "EH12", "EH13", "EH14", "EH15", "EH16", "EH17",
+      "EH18", "EH19", "EH20", "EH21", "EH22", "EH23", "EH24", "EH25",
+      "EH26", "EH27", "EH28", "EH29", "EH30", "EH31", "EH32", "EH33",
+      "EH34", "EH35", "EH36", "EH37", "EH38", "EH39", "EH40", "EH41",
+      "EH42", "EH43", "EH44", "EH45", "EH46", "EH47", "EH48", "EH49",
+      "EH51", "EH52", "EH53", "EH54", "EH55"
     ],
     "excluded": [
       "EH17",

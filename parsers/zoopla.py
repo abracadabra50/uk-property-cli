@@ -1,145 +1,167 @@
 #!/usr/bin/env python3
 """
-Zoopla Property Parser
-Uses Firecrawl API to bypass Cloudflare protection
-NOTE: Requires firecrawl CLI and API key (breaks zero-dependency principle)
+Zoopla Property Parser — Playwright-based (no external API dependencies)
+Uses headless Chromium to bypass Cloudflare, extracts listings from rendered DOM.
+Requires: playwright installed in /Users/zish/gaffer-test/
 """
 
-import sys, json, subprocess, re
-from datetime import datetime
+import sys, json, subprocess, re, os
+from datetime import datetime, timezone
 
-BEDS = sys.argv[1] if len(sys.argv) > 1 else "4"
+BEDS      = sys.argv[1] if len(sys.argv) > 1 else "4"
+MAX_PRICE = sys.argv[2] if len(sys.argv) > 2 else "700000"
+PLAYWRIGHT_DIR = "/Users/zish/gaffer-test"
 
-# Bad areas to exclude
 BAD_AREAS = [
-    "Moredun", "Niddrie", "Wester Hailes", "Sighthill", 
-    "Muirhouse", "Pilton", "Kirkliston", "Musselburgh", 
-    "Dalkeith", "Granton", "Liberton"
+    "Moredun", "Niddrie", "Wester Hailes", "Sighthill",
+    "Muirhouse", "Pilton", "Kirkliston", "Granton"
 ]
 
-def fetch_page(beds):
-    """Fetch Zoopla search page using firecrawl (bypasses Cloudflare)"""
-    url = f"https://www.zoopla.co.uk/for-sale/property/edinburgh/?beds_min={beds}&results_sort=newest_listings"
+JS = r"""
+async () => {
+  const rows = document.querySelectorAll('[id^="listing_"]');
+  const results = [];
+  
+  for (const row of rows) {
+    const id = row.id.replace('listing_', '');
     
-    # Check if firecrawl is available
-    result = subprocess.run(
-        ["which", "firecrawl"],
-        capture_output=True,
-        text=True
-    )
-    
-    if result.returncode != 0:
-        print("Error: firecrawl CLI not found. Install with: npm install -g @mendable/firecrawl-cli", file=sys.stderr)
-        print("Also set FIRECRAWL_API_KEY environment variable", file=sys.stderr)
-        return ""
-    
-    # Fetch with firecrawl
-    result = subprocess.run(
-        ["firecrawl", "scrape", url, "--format", "markdown"],
-        capture_output=True,
-        text=True,
-        timeout=30
-    )
-    
-    return result.stdout
-
-def is_bad_area(address):
-    """Check if property is in excluded area"""
-    return any(bad.lower() in address.lower() for bad in BAD_AREAS)
-
-def categorize(price, beds):
-    """Categorize as investment or family"""
-    if price < 250000:
-        return "investment"
-    elif beds >= 4:
-        return "family"
-    else:
-        return "other"
-
-def parse_price(price_text):
-    """Extract numeric price from text like '£550,000'"""
-    if not price_text:
-        return 0
-    # Remove everything except digits
-    digits = re.sub(r'[^\d]', '', price_text)
-    return int(digits) if digits else 0
-
-def parse_properties(markdown):
-    """Extract property data from Zoopla markdown"""
-    properties = []
-    
-    # Pattern: [£price ... beds ... baths ... address ... description ...]
-    # Look for property blocks in markdown
-    property_pattern = r'\[£([\d,]+).*?(\d+)\s+beds.*?(\d+)\s+baths.*?\n(.*?)\n(.*?)\]'
-    
-    matches = re.findall(property_pattern, markdown, re.DOTALL)
-    
-    for price_text, beds, baths, address, description in matches:
-        # Skip bad areas
-        if is_bad_area(address):
-            continue
-        
-        price = parse_price(price_text)
-        
-        # Extract postcode
-        postcode = ""
-        pc_match = re.search(r'(EH\d+\s*\d*\w*)', address.upper())
-        if pc_match:
-            postcode = pc_match.group(1)
-        
-        # Extract Zoopla ID from URL (would need to capture URL separately)
-        # For now, use a hash of address as ID
-        prop_id = str(abs(hash(address)) % 100000000)
-        
-        prop = {
-            "id": prop_id,
-            "title": f"{beds}-bed property",
-            "price": price,
-            "price_text": f"Offers over £{price_text}",
-            "beds": int(beds),
-            "baths": int(baths),
-            "property_type": "house",
-            "address": address.strip(),
-            "area": address.split(',')[-1].strip() if ',' in address else "",
-            "postcode": postcode,
-            "description": description.strip()[:200],
-            "url": f"https://www.zoopla.co.uk/for-sale/details/{prop_id}/",  # Approximate
-            "image_url": "",
-            "images": [],
-            "features": [],
-            "portal": "zoopla",
-            "category": categorize(price, int(beds))
-        }
-        
-        properties.append(prop)
-    
-    return properties
-
-def main():
-    markdown = fetch_page(BEDS)
-    
-    if not markdown:
-        output = {
-            "portal": "zoopla",
-            "fetched_at": datetime.utcnow().isoformat() + "Z",
-            "count": 0,
-            "properties": [],
-            "error": "Firecrawl not available or API key not set"
-        }
-        print(json.dumps(output, indent=2))
-        return
-    
-    properties = parse_properties(markdown)
-    
-    output = {
-        "portal": "zoopla",
-        "fetched_at": datetime.utcnow().isoformat() + "Z",
-        "count": len(properties),
-        "properties": properties,
-        "note": "Uses Firecrawl API (requires API key, ~$1/1000 requests)"
+    // Address
+    const textEls = row.querySelectorAll('address, h2, h3, [class*="address"], [class*="Address"]');
+    let address = '';
+    for (const el of textEls) {
+      const t = el.textContent.trim();
+      if (t.match(/EH\d+/) || t.match(/Edinburgh/i)) { address = t; break; }
+    }
+    if (!address) {
+      const link = row.querySelector('a[aria-label]');
+      address = link?.getAttribute('aria-label') || '';
     }
     
-    print(json.dumps(output, indent=2))
+    // Price — clean "See monthly cost" etc
+    const priceEl = row.querySelector('[class*="price"], [class*="Price"]');
+    const priceRaw = (priceEl?.textContent || '').replace(/See monthly cost.*/g, '').trim();
+    const priceNum = parseInt((priceRaw.match(/[\d,]+/) || ['0'])[0].replace(/,/g, ''));
+    
+    // Beds/baths
+    const txt = row.textContent;
+    const bedsM = txt.match(/(\d+)\s*bed/);
+    const bathsM = txt.match(/(\d+)\s*bath/);
+    const beds = bedsM ? parseInt(bedsM[1]) : 0;
+    const baths = bathsM ? parseInt(bathsM[1]) : 0;
+    
+    // URL
+    const linkEl = row.querySelector('a[href*="details"]');
+    const url = linkEl ? 'https://www.zoopla.co.uk' + linkEl.getAttribute('href') : '';
+    
+    // Image — prefer JPEG source (not WebP :p variant)
+    const sources = row.querySelectorAll('source[srcset*="lid.zoocdn"]');
+    let imgUrl = '';
+    for (const src of sources) {
+      const srcset = src.getAttribute('srcset') || '';
+      const type = src.getAttribute('type') || '';
+      if (type.includes('jpeg') || !type.includes('webp')) {
+        const match = srcset.match(/(https:\/\/lid\.zoocdn\.com\/645\/430\/[^\s,]+\.jpg)/);
+        if (match) { imgUrl = match[1]; break; }
+      }
+    }
+    if (!imgUrl) {
+      // Fallback: any zoocdn URL
+      const m = row.innerHTML.match(/https:\/\/lid\.zoocdn\.com\/645\/430\/[^"':]+\.jpg/);
+      if (m) imgUrl = m[0];
+    }
+    
+    // Postcode
+    const pcM = address.match(/\b(EH\d+\s*\d*[A-Z]*)\b/i);
+    const postcode = pcM ? pcM[1].toUpperCase() : '';
+    
+    if (id && beds >= 1) {
+      results.push({ id, address, price: priceNum, priceRaw, beds, baths, postcode, url, image_url: imgUrl });
+    }
+  }
+  
+  // Dedupe by ID
+  const seen = new Set();
+  return results.filter(p => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+}
+"""
 
-if __name__ == "__main__":
-    main()
+JS_SCRIPT = f"""
+const {{ chromium }} = require('playwright');
+const BEDS = '{BEDS}';
+const MAX_PRICE = '{MAX_PRICE}';
+const BAD_AREAS = {json.dumps(BAD_AREAS)};
+
+(async () => {{
+  const browser = await chromium.launch({{ headless: true }});
+  const ctx = await browser.newContext({{
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    locale: 'en-GB',
+    viewport: {{ width: 1280, height: 800 }}
+  }});
+  const page = await ctx.newPage();
+  
+  const url = `https://www.zoopla.co.uk/for-sale/property/edinburgh/?beds_min=${{BEDS}}&results_sort=newest_listings`;
+  
+  try {{
+    await page.goto(url, {{ waitUntil: 'networkidle', timeout: 45000 }});
+  }} catch(e) {{
+    // networkidle may timeout on heavy pages — content is usually there
+  }}
+  
+  const raw = await page.evaluate({JS});
+  
+  // Filter + categorize in JS before returning
+  const filtered = raw.filter(p => {{
+    if (p.price > parseInt(MAX_PRICE)) return false;
+    if (BAD_AREAS.some(b => p.address.toLowerCase().includes(b.toLowerCase()))) return false;
+    const isEH = /\\bEH\\d+\\b/i.test(p.address);
+    return isEH;
+  }}).map(p => ({{
+    ...p,
+    title: `${{p.beds}}-bed property`,
+    price_text: p.priceRaw,
+    property_type: 'property',
+    features: [],
+    images: p.image_url ? [p.image_url] : [],
+    portal: 'zoopla',
+    category: p.price < 250000 ? 'investment' : (p.beds >= 4 ? 'family' : 'other')
+  }}));
+  
+  const output = {{
+    portal: 'zoopla',
+    fetched_at: new Date().toISOString(),
+    count: filtered.length,
+    properties: filtered
+  }};
+  
+  console.log(JSON.stringify(output));
+  await browser.close();
+}})().catch(e => {{
+  console.error(JSON.stringify({{ portal: 'zoopla', error: e.message, properties: [] }}));
+  process.exit(1);
+}});
+"""
+
+# Write temp JS file and run it
+tmp_js = "/Users/zish/gaffer-test/zoopla_parser.js"
+with open(tmp_js, 'w') as f:
+    f.write(JS_SCRIPT)
+
+result = subprocess.run(
+    ["node", tmp_js],
+    capture_output=True, text=True,
+    cwd=PLAYWRIGHT_DIR,
+    timeout=90
+)
+
+if result.returncode != 0:
+    sys.stderr.write(result.stderr)
+    print(json.dumps({"portal": "zoopla", "error": result.stderr[-200:], "properties": []}))
+else:
+    # Print the JSON output
+    output = result.stdout.strip()
+    print(output)

@@ -19,7 +19,7 @@ BAD_AREAS = [
 def fetch_page(beds):
     """Fetch Rightmove search page using curl"""
     # Edinburgh region ID: REGION^550, sortType=6 is newest first
-    url = f"https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E550&minBedrooms={beds}&sortType=6"
+    url = f"https://www.rightmove.co.uk/property-for-sale/find.html?locationIdentifier=REGION%5E475&minBedrooms={beds}&sortType=6"
     result = subprocess.run(
         ["curl", "-s", "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", url],
         capture_output=True,
