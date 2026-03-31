@@ -39,8 +39,15 @@ async () => {
     
     // Price — clean "See monthly cost" etc
     const priceEl = row.querySelector('[class*="price"], [class*="Price"]');
-    const priceRaw = (priceEl?.textContent || '').replace(/See monthly cost.*/g, '').trim();
+    let priceRaw = (priceEl?.textContent || '').replace(/See monthly cost.*/gi, '').trim();
+    priceRaw = priceRaw.replace(/\s+/g, ' ').trim();
     const priceNum = parseInt((priceRaw.match(/[\d,]+/) || ['0'])[0].replace(/,/g, ''));
+    let qualifier = '';
+    if (/Offers over/i.test(priceRaw)) qualifier = 'Offers over';
+    else if (/Fixed price/i.test(priceRaw)) qualifier = 'Fixed price';
+    else if (/Offers in excess/i.test(priceRaw)) qualifier = 'Offers in excess';
+    else if (/Guide price/i.test(priceRaw)) qualifier = 'Guide price';
+    const priceText = qualifier ? `${qualifier} £${priceNum.toLocaleString('en-GB')}` : `£${priceNum.toLocaleString('en-GB')}`;
     
     // Beds/baths
     const txt = row.textContent;
@@ -75,7 +82,7 @@ async () => {
     const postcode = pcM ? pcM[1].toUpperCase() : '';
     
     if (id && beds >= 1) {
-      results.push({ id, address, price: priceNum, priceRaw, beds, baths, postcode, url, image_url: imgUrl });
+      results.push({ id, address, price: priceNum, priceRaw, priceText, beds, baths, postcode, url, image_url: imgUrl });
     }
   }
   
@@ -123,7 +130,7 @@ const BAD_AREAS = {json.dumps(BAD_AREAS)};
   }}).map(p => ({{
     ...p,
     title: `${{p.beds}}-bed property`,
-    price_text: p.priceRaw,
+    price_text: p.priceText || p.priceRaw,
     property_type: 'property',
     features: [],
     images: p.image_url ? [p.image_url] : [],
