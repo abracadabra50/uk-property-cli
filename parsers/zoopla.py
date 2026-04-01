@@ -103,20 +103,36 @@ const MAX_PRICE = '{MAX_PRICE}';
 const BAD_AREAS = {json.dumps(BAD_AREAS)};
 
 (async () => {{
-  const browser = await chromium.launch({{ headless: true }});
+  const browser = await chromium.launch({{
+    headless: true,
+    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-web-security']
+  }});
   const ctx = await browser.newContext({{
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     locale: 'en-GB',
-    viewport: {{ width: 1280, height: 800 }}
+    viewport: {{ width: 1280, height: 800 }},
+    extraHTTPHeaders: {{ 'Accept-Language': 'en-GB,en;q=0.9' }}
+  }});
+  // Hide automation signals
+  await ctx.addInitScript(() => {{
+    Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+    window.chrome = {{ runtime: {{}} }};
   }});
   const page = await ctx.newPage();
   
   const url = `https://www.zoopla.co.uk/for-sale/property/edinburgh/?beds_min=${{BEDS}}&results_sort=newest_listings`;
   
-  try {{
-    await page.goto(url, {{ waitUntil: 'networkidle', timeout: 45000 }});
-  }} catch(e) {{
-    // networkidle may timeout on heavy pages — content is usually there
+  // Retry up to 3 times if Cloudflare challenge page detected
+  let attempts = 0;
+  while (attempts < 3) {{
+    attempts++;
+    try {{
+      await page.goto(url, {{ waitUntil: 'networkidle', timeout: 45000 }});
+    }} catch(e) {{}}
+    const title = await page.title();
+    if (!title.toLowerCase().includes('moment') && !title.toLowerCase().includes('cloudflare')) break;
+    // CF challenge — wait and retry
+    await page.waitForTimeout(3000 * attempts);
   }}
   
   const raw = await page.evaluate({JS});
